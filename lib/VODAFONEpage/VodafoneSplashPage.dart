@@ -44,13 +44,17 @@ class _VodafonePageState extends State<VodafonePage> {
         home: SafeArea(
           child: Scaffold(
             body: Center(
+              child:SingleChildScrollView (
 
               child: Column(
                 children: <Widget>[Image.asset('assets/img.png')],
 
               ),
+
             ),
           ),
-        ));
+          ),
+        )
+    );
   }
 }

@@ -1,6 +1,10 @@
 import 'package:buttons_tabbar/buttons_tabbar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_phone_direct_caller/flutter_phone_direct_caller.dart';
+import 'package:selfdesignqb2/MTNpage/mtntab.dart';
+import 'package:selfdesignqb2/VODAFONEpage/vodafoneTab.dart';
+
+import 'AIRTELTIGOpage/airteltigopage.dart';
 
 void main() {
   runApp(const HomePage());
@@ -19,7 +23,7 @@ class HomePage extends StatelessWidget {
             centerTitle: true,
           ),
           body: Padding(
-            padding: const EdgeInsets.all(8.0),
+            padding: const EdgeInsets.all(0.0),
             child: Column(
               children: [
                 ButtonsTabBar(
@@ -50,104 +54,18 @@ class HomePage extends StatelessWidget {
                     Tab(text: ("    TIGO    ")),
                   ],
                 ),
-                Expanded(
+                const Expanded(
                   child: TabBarView(
                     children: [
-                      SizedBox(
-                        height: 30,
-                        child:
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(0, 30, 0, 0),
-                          child: Container(
-                            decoration: const BoxDecoration(
-                                gradient: LinearGradient(
-                                    begin: Alignment.bottomCenter,
-                                    end: Alignment.topCenter,
-                                    colors: [Colors.amber, Colors.white])),
-                            child: Column(
-                              children: <Widget>[
-                                Padding(
-                                  padding:const EdgeInsets.fromLTRB(1, 20, 1, 1),
-                                  child: ElevatedButton(onPressed: () {
-                                    FlutterPhoneDirectCaller.callNumber("*124#");
 
-                                  },
+                      //MTN TAB
+                      MtnScreen(),
 
+                      //VodafoneTab
+                      VodafoneScreen(),
 
-                                    style: ElevatedButton.styleFrom(backgroundColor: Colors.white,
-                                        foregroundColor: Colors.black,
-
-                                        shape:  RoundedRectangleBorder(borderRadius: BorderRadius.circular(10),),
-                                        // StadiumBorder(),
-
-                                        fixedSize: const Size(350, 50)),
-
-                                    child:  const Text('MTN CHECK CREDIT BALANCE \n *124#'  ,textAlign: TextAlign.center,), ),
-
-
-
-
-                                ),
-                                Padding(
-                                  padding:const EdgeInsets.fromLTRB(1, 20, 1, 1),
-                                  child: ElevatedButton(onPressed: () {
-                                    FlutterPhoneDirectCaller.callNumber("*135*2*1#");
-                                  },
-                                    // icon:const Icon(Icons.call),
-
-                                    style: ElevatedButton.styleFrom(backgroundColor: Colors.white,
-                                        foregroundColor: Colors.black,
-                                        shape:  RoundedRectangleBorder(borderRadius: BorderRadius.circular(10),),
-                                        // StadiumBorder(),
-
-                                        fixedSize: const Size(350, 50)),
-
-                                    child:  const Text('MTN ZONE BUNDLES \n *135*2*1#'  ,textAlign: TextAlign.center),),
-
-
-
-
-                                ),
-
-                              ],
-                            ),
-
-                          ),
-
-
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(1, 30, 1, 1),
-                        child: Container(
-                          decoration: const BoxDecoration(
-                              gradient: LinearGradient(
-                                  begin: Alignment.bottomCenter,
-                                  end: Alignment.topCenter,
-                                  colors: [Colors.red, Colors.white])),
-
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(1, 30, 1, 1),
-                        child: Container(
-                            decoration: const BoxDecoration(
-                                gradient: LinearGradient(
-                                    begin: Alignment.bottomCenter,
-                                    end: Alignment.topCenter,
-                                    colors: [Colors.red, Colors.blueAccent])),
-                            child: Column(
-                              children: <Widget>[
-
-                                ElevatedButton(onPressed: () {}, child: const Text('TIGO CHECK CREDIT BALANCE')),
-                                TextButton(onPressed: () {}, child: Text('hi')),
-
-                              ],
-                            )
-
-
-                        ),
-                      ),
+                      //AIRTELTIGO
+                      TigoScreen(),
 
 
                     ],

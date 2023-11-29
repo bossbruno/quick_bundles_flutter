@@ -94,5 +94,5 @@ flutter:
   fonts:
     - family: Poppins
       fonts:
-        - asset: assets/Poppins-SemiBold.ttf
+        - asset: assets/Poppins-ExtraBold.ttf
           weight: 500
