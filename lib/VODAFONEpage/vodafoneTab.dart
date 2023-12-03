@@ -68,7 +68,27 @@ class _VodafoneScreenState extends State<VodafoneScreen> {
 
                       fixedSize: const Size(350, 50)),
 
-                  child:  const Text('MTN ZONE BUNDLES \n *135*2*1#'  ,textAlign: TextAlign.center),),
+                  child:  const Text('VODAFONE INFORMATION SERVICE \n *151#'  ,textAlign: TextAlign.center),),
+
+
+
+
+              ),
+              Padding(
+                padding:const EdgeInsets.fromLTRB(1, 20, 1, 1),
+                child: ElevatedButton(onPressed: () {
+                  FlutterPhoneDirectCaller.callNumber("*135*2*1#");
+                },
+                  // icon:const Icon(Icons.call),
+
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.white,
+                      foregroundColor: Colors.black,
+                      shape:  RoundedRectangleBorder(borderRadius: BorderRadius.circular(10),),
+                      // StadiumBorder(),
+
+                      fixedSize: const Size(350, 50)),
+
+                  child:  const Text('VODAFONE CASH \n *110#'  ,textAlign: TextAlign.center),),
 
 
 
