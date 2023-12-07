@@ -110,6 +110,26 @@ class _MtnScreenState extends State<MtnScreen> {
               Padding(
                 padding:const EdgeInsets.fromLTRB(1, 20, 1, 1),
                 child: ElevatedButton(onPressed: () {
+                  FlutterPhoneDirectCaller.callNumber("100");
+                },
+                  // icon:const Icon(Icons.call),
+
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.white,
+                      foregroundColor: Colors.black,
+                      shape:  RoundedRectangleBorder(borderRadius: BorderRadius.circular(10),),
+                      // StadiumBorder(),
+
+                      fixedSize: const Size(350, 50)),
+
+                  child:  const Text('MTN CUSTOMER SERVICE \n 100'  ,textAlign: TextAlign.center),),
+
+
+
+
+              ),
+              Padding(
+                padding:const EdgeInsets.fromLTRB(1, 20, 1, 1),
+                child: ElevatedButton(onPressed: () {
                   FlutterPhoneDirectCaller.callNumber("*567#");
                 },
                   // icon:const Icon(Icons.call),
@@ -187,6 +207,7 @@ class _MtnScreenState extends State<MtnScreen> {
 
                   child:  const Text('CHECK IF SIM IS REGISTERED \n *400#'  ,textAlign: TextAlign.center),),
               ),
+
             ],
           ),
         ),
