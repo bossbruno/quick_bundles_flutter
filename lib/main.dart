@@ -15,7 +15,11 @@ class HomePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DefaultTabController(
+
+
+    return MaterialApp(
+     //home: Directionality(textDirection: TextDirection.rtl,
+      home:DefaultTabController(
       length: 3,
       child: Scaffold(
           appBar: AppBar(
@@ -26,6 +30,7 @@ class HomePage extends StatelessWidget {
             padding: const EdgeInsets.all(0.0),
             child: Column(
               children: [
+
                 ButtonsTabBar(
                   // height: 45,
                   // decoration: BoxDecoration(
@@ -50,10 +55,11 @@ class HomePage extends StatelessWidget {
 
                   tabs: const [
                     Tab(text: ("    MTN    ")),
-                    Tab(text: ("VODAFONE")),
+                    Tab(text: ("TELECEL")),
                     Tab(text: ("    TIGO    ")),
                   ],
                 ),
+
                 const Expanded(
                   child: TabBarView(
                     children: [
@@ -74,6 +80,8 @@ class HomePage extends StatelessWidget {
               ],
             ),
           )),
-    );
+    )
+    )
+    ;
   }
 }

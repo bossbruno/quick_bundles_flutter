@@ -19,9 +19,10 @@ class _VodafoneScreenState extends State<VodafoneScreen> {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 30,
+      child: SingleChildScrollView(
+     // height: 30,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(0, 30, 0, 0),
+        padding: const EdgeInsets.fromLTRB(0, 10, 0, 0),
         child: Container(
           decoration: const BoxDecoration(
               gradient: LinearGradient(
@@ -153,7 +154,7 @@ class _VodafoneScreenState extends State<VodafoneScreen> {
 
                       fixedSize: const Size(350, 50)),
 
-                  child:  const Text('VODAFONE CUSTOMER SERVICE \n 100'  ,textAlign: TextAlign.center),),
+                  child:  const Text('TELECEL CUSTOMER SERVICE \n 100'  ,textAlign: TextAlign.center),),
 
 
 
@@ -178,7 +179,7 @@ class _VodafoneScreenState extends State<VodafoneScreen> {
 
                       fixedSize: const Size(350, 50)),
 
-                  child: const Text('VODAFONE INTERNET PACKAGES \n *700#',
+                  child: const Text('TELECEL INTERNET PACKAGES \n *700#',
                       textAlign: TextAlign.center),
                 ),
               ),
@@ -225,6 +226,7 @@ class _VodafoneScreenState extends State<VodafoneScreen> {
           ),
         ),
       ),
+    )
     );
   }
 }

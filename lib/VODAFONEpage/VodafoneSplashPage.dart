@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 
-import '../AIRTELTIGOpage/AirtelSpl;ashPage.dart';
+import '../AIRTELTIGOpage/AirtelSplashPage.dart';
 
 
 void main() {

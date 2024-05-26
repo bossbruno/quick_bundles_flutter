@@ -23,7 +23,7 @@ class _MtnScreenState extends State<MtnScreen> {
       child: SingleChildScrollView(
 
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(0, 30, 0, 0),
+        padding: const EdgeInsets.fromLTRB(0, 10, 0, 0),
         child: Container(
           decoration: const BoxDecoration(
               gradient: LinearGradient(
