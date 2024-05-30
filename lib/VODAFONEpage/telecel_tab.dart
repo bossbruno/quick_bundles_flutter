@@ -1,4 +1,4 @@
-import 'dart:async';
+
 
 import 'package:flutter/material.dart';
 import 'package:flutter_phone_direct_caller/flutter_phone_direct_caller.dart';
@@ -18,8 +18,47 @@ class _VodafoneScreenState extends State<VodafoneScreen> {
 
   @override
   Widget build(BuildContext context) {
+
+    Widget buildButton(String text, String ussdCode) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(5, 20, 1, 5),
+        child: ElevatedButton(
+          onPressed: () {
+            FlutterPhoneDirectCaller.callNumber(ussdCode);
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.white,
+            foregroundColor: Colors.black,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            fixedSize: const Size(350, 50),
+          ),
+          child: Text(
+            text,
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    }
+
+    List<String> buttonTexts = [
+      'TELECEL CHECK CREDIT BALANCE',
+      'TELECEL INFORMATION SERVICE',
+      'TELECEL CASH'
+      // ...
+    ];
+
+    List<String> ussdCodes = [
+      '*126#',
+      '*151#',
+      '*110#'
+      // ...
+    ];
+
+
     return SizedBox(
-      child: SingleChildScrollView(
+      //child: SingleChildScrollView(
      // height: 30,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(0, 10, 0, 0),
@@ -29,10 +68,26 @@ class _VodafoneScreenState extends State<VodafoneScreen> {
                   begin: Alignment.bottomCenter,
                   end: Alignment.topCenter,
                   colors: [Colors.red, Colors.white])),
-          child: Column(
-            children: <Widget>[
+
+
+
+
+          child: ListView(
+
+
+
+            children:  [
+              for (int i = 0; i < buttonTexts.length; i++)
+                buildButton(buttonTexts[i], ussdCodes[i]),
+            ],
+
+            /*
+            <Widget>[
+              buildButton('VODAFONE CHECK CREDIT BALANCE', '*126#'),
+              buildButton('VODAFONE INFORMATION SERVICE', '*151#'),
               Padding(
                 padding: const EdgeInsets.fromLTRB(1, 20, 1, 1),
+
                 child: ElevatedButton(
                   onPressed: () {
                     FlutterPhoneDirectCaller.callNumber("*126#");
@@ -222,11 +277,11 @@ class _VodafoneScreenState extends State<VodafoneScreen> {
                   child:  const Text('CHECK IF SIM IS REGISTERED \n *400#'  ,textAlign: TextAlign.center),),
               ),
 
-            ],
+            ], */
           ),
         ),
       ),
-    )
+   // )
     );
   }
 }
