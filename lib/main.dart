@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:selfdesignqb2/MTNpage/mtntab.dart';
 import 'package:selfdesignqb2/VODAFONEpage/telecel_tab.dart';
 
-import 'AIRTELTIGOpage/airteltigopage.dart';
+import 'AIRTELTIGOpage/at_tab.dart';
 
 void main() {
   runApp(const HomePage());

@@ -1,19 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_phone_direct_caller/flutter_phone_direct_caller.dart';
 
-class VodafoneScreen extends StatefulWidget {
-  const VodafoneScreen({super.key});
+class TigoScreen extends StatefulWidget {
+  const TigoScreen({super.key});
 
   @override
-  State<VodafoneScreen> createState() => _VodafoneScreenState();
+  State<TigoScreen> createState() => _TigoScreenState();
 }
 
-class _VodafoneScreenState extends State<VodafoneScreen> {
-  @override
-  void initState() {
-    super.initState();
-  }
-
+class _TigoScreenState extends State<TigoScreen> {
   @override
   Widget build(BuildContext context) {
     Widget buildButton(String text, String ussdCode) {
@@ -40,29 +35,33 @@ class _VodafoneScreenState extends State<VodafoneScreen> {
     }
 
     List<String> buttonTexts = [
-      'TELECEL CREDIT BALANCE',
-      'TELECEL INFORMATION SERVICE',
-      'TELECEL CASH',
+      'AT CREDIT BALANCE',
+      'AT MONEY',
+      'AT INTERNET PACKAGES',
+      'AT CUSTOMER SERVICE',
       'CHECK YOUR NUMBER',
-      'TELECEL INTERNET PACKAGES',
-      'TELECEL INTERNET BALANCE',
-      'TELECEL MADE4ME',
+      'AT BEST OFFERS',
+      'AT SPECIAL OFFERS',
+      'AT BUNDLE BALANCE',
+      'AT SELF SERVICE',
       'CHECK IF SIM IS REGISTERED'
+
       // ...
     ];
 
     List<String> ussdCodes = [
       '*124#',
-      '*151#',
       '*110#',
-      '*172#',
-      '*700#',
-      '*126#',
-      '*530#',
+      '*111#',
+      '100',
+      '*703#',
+      '*533#',
+      '*499#',
+      '*504#',
+      '*100#',
       '*400#'
       // ...
     ];
-
     return SizedBox(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(0, 10, 0, 0),
@@ -71,7 +70,7 @@ class _VodafoneScreenState extends State<VodafoneScreen> {
               gradient: LinearGradient(
                   begin: Alignment.bottomCenter,
                   end: Alignment.topCenter,
-                  colors: [Colors.red, Colors.white])),
+                  colors: [Colors.red, Colors.blue])),
           child: ListView(
             children: [
               for (int i = 0; i < buttonTexts.length; i++)
@@ -79,7 +78,7 @@ class _VodafoneScreenState extends State<VodafoneScreen> {
             ],
           ),
         ),
-      ), // )
+      ),
     );
   }
 }
