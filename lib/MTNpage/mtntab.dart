@@ -44,6 +44,7 @@ class _MtnScreenState extends State<MtnScreen> {
     List<String> buttonTexts = [
       'MTN CREDIT BALANCE',
       'MTN MOBILE MONEY',
+      'MTN DATA INFO'
       'MTN ZONE',
       'MTN CUSTOMER SERVICE',
       'MTN MASHUP/PULSE',
@@ -58,13 +59,15 @@ class _MtnScreenState extends State<MtnScreen> {
     List<String> ussdCodes = [
       '*124#',
       '*170#',
+      '*156',
       '*135#',
       '100',
-      '*567#',
+      '*567#', 
       '*550#',
       '*170#',
       '1515',
-      '*400#'
+      '*400#',
+
       // ...
     ];
     return SizedBox(

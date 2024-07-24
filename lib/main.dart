@@ -1,17 +1,55 @@
 import 'package:buttons_tabbar/buttons_tabbar.dart';
 import 'package:flutter/material.dart';
-//import 'package:flutter_phone_direct_caller/flutter_phone_direct_caller.dart';
 import 'package:selfdesignqb2/MTNpage/mtntab.dart';
 import 'package:selfdesignqb2/VODAFONEpage/telecel_tab.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
+
 
 import 'AIRTELTIGOpage/at_tab.dart';
+import 'Ads_directory/ad_mob_service.dart';
 
 void main() {
-  runApp(const HomePage());
+  WidgetsFlutterBinding.ensureInitialized();
+  MobileAds.instance.initialize().then((InitializationStatus status) {
+    print('Initialization complete: ${status.adapterStatuses}');
+    runApp(const HomePage());
+  }).catchError((error) {
+    print('Error initializing Mobile Ads: $error');
+    // Handle the error appropriately, e.g., display a message to the user.
+  });
 }
 
-class HomePage extends StatelessWidget {
+class HomePage extends StatefulWidget {
   const HomePage({super.key});
+  @override
+  State<HomePage> createState() => _HomePage();
+}
+class _HomePage extends State<HomePage> {
+  BannerAd? _bannerAd;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _bannerAd = BannerAd(
+      size: AdSize.banner,
+      adUnitId: AdMobService.bannerAdUnitId, // Use your AdMobService
+      listener: BannerAdListener(
+        onAdLoaded: (ad) {
+          setState(() {}); // Refresh the UI to show the ad
+        },
+        onAdFailedToLoad: (ad, error) {
+          print('Failed to load banner ad: ${error.message}');
+          ad.dispose();
+        },
+      ),request: const AdRequest(),
+    )..load();
+  }
+
+  @override
+  void dispose() {
+    _bannerAd?.dispose(); // Dispose the banner ad when the widget is disposed
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -76,12 +114,20 @@ class HomePage extends StatelessWidget {
 
                     ],
                   ),
-                )
+                ),
+                if (_bannerAd != null)
+                  Container( // Wrap the AdWidget in a Container for alignment
+                    alignment: Alignment.center, // Center the ad horizontally
+                    width: _bannerAd!.size.width.toDouble(),height: _bannerAd!.size.height.toDouble(),
+                    child: AdWidget(ad: _bannerAd!),
+                  ),
               ],
             ),
-          )),
+          )
+
+      ),
     )
     )
     ;
-  }
-}
+  }}
+
