@@ -59,7 +59,7 @@ class _MtnScreenState extends State<MtnScreen> {
     List<String> ussdCodes = [
       '*124#',
       '*170#',
-      '*156',
+      '*156#',
       '*135#',
       '100',
       '*567#', 

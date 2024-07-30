@@ -94,7 +94,7 @@ class _HomePage extends State<HomePage> {
                   tabs: const [
                     Tab(text: ("    MTN    ")),
                     Tab(text: ("TELECEL")),
-                    Tab(text: ("    TIGO    ")),
+                    Tab(text: ("    AT    ")),
                   ],
                 ),
 
