@@ -40,14 +40,14 @@ class _VodafoneScreenState extends State<VodafoneScreen> {
     }
 
     List<String> buttonTexts = [
-      'TELECEL CREDIT BALANCE',
-      'TELECEL INFORMATION SERVICE',
-      'TELECEL CASH',
-      'CHECK YOUR NUMBER',
-      'TELECEL INTERNET PACKAGES',
-      'TELECEL INTERNET BALANCE',
-      'TELECEL MADE4ME',
-      'CHECK IF SIM IS REGISTERED'
+      'TELECEL CREDIT BALANCE \n *124#',
+      'TELECEL INFORMATION SERVICE \n *151#',
+      'TELECEL CASH \n *110#',
+      'CHECK YOUR NUMBER \n *172#',
+      'TELECEL INTERNET PACKAGES \n *700#',
+      'TELECEL INTERNET BALANCE \n *126#',
+      'TELECEL MADE4ME \n *530#',
+      'CHECK IF SIM IS REGISTERED \n *400#'
       // ...
     ];
 

@@ -37,16 +37,16 @@ class _TigoScreenState extends State<TigoScreen> {
     }
 
     List<String> buttonTexts = [
-      'AT CREDIT BALANCE',
-      'AT MONEY',
-      'AT INTERNET PACKAGES',
-      'AT CUSTOMER SERVICE',
-      'CHECK YOUR NUMBER',
-      'AT BEST OFFERS',
-      'AT SPECIAL OFFERS',
-      'AT BUNDLE BALANCE',
-      'AT SELF SERVICE',
-      'CHECK IF SIM IS REGISTERED'
+      'AT CREDIT BALANCE \n *124#',
+      'AT MONEY \n *110#',
+      'AT INTERNET PACKAGES \n *111#',
+      'AT CUSTOMER SERVICE \n 100',
+      'CHECK YOUR NUMBER \n *703#',
+      'AT BEST OFFERS \n *533#',
+      'AT SPECIAL OFFERS\n *499#',
+      'AT BUNDLE BALANCE\n *504#',
+      'AT SELF SERVICE\n *100#',
+      'CHECK IF SIM IS REGISTERED\n *400#'
 
       // ...
     ];

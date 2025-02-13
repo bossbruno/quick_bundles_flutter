@@ -15,11 +15,12 @@ class _AirtelPageState extends State<AirtelPage> {
   @override
   void initState() {
     // TODO: implement initState
-    super.initState();
     Timer(
         const Duration(seconds:1),
             () => Navigator.of(context).push(MaterialPageRoute(
             builder: (BuildContext context) => const MTNPage())));
+    super.initState();
+
   }
 
   @override

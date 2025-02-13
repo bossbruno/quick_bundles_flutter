@@ -1,7 +1,7 @@
 import 'package:buttons_tabbar/buttons_tabbar.dart';
 import 'package:flutter/material.dart';
-import 'package:selfdesignqb2/MTNpage/mtntab.dart';
-import 'package:selfdesignqb2/VODAFONEpage/telecel_tab.dart';
+import 'package:quick_bundles_flutter/MTNpage/mtntab.dart';
+import 'package:quick_bundles_flutter/VODAFONEpage/telecel_tab.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 

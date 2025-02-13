@@ -2,7 +2,7 @@
     <application
         android:label="Quick Bundles"
         android:name="${applicationName}"
-        android:icon="@mipmap/icon">
+        android:icon="@mipmap/icons">
         <activity
             android:name=".MainActivity"
             android:exported="true"
