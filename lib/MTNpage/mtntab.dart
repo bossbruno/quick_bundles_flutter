@@ -9,11 +9,6 @@ class MtnScreen extends StatefulWidget {
 }
 
 class _MtnScreenState extends State<MtnScreen> {
-  // No need to override initState if you're not doing anything special.
-  // @override
-  // void initState() {
-  //   super.initState();
-  // }
 
   // Moved button creation logic to a separate method for better organization.
   Widget _buildButton(String text, String ussdCode) {
