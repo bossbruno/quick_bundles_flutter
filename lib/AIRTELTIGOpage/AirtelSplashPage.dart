@@ -14,29 +14,28 @@ class AirtelPage extends StatefulWidget {
 class _AirtelPageState extends State<AirtelPage> {
   @override
   void initState() {
-    // TODO: implement initState
-    Timer(
-        const Duration(seconds:1),
-            () => Navigator.of(context).push(MaterialPageRoute(
-            builder: (BuildContext context) => const MTNPage())));
     super.initState();
-
+    Timer(
+      const Duration(seconds: 1),
+      () => Navigator.of(context).pushReplacement(MaterialPageRoute(
+        builder: (BuildContext context) => const MTNPage()
+      ))
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     // Figma Flutter Generator Group1Widget - GROUP
-    return MaterialApp(
-        home: SafeArea(
-          child: Scaffold(
-            body: Center(
-              child: SingleChildScrollView(
-                child: Column(
-                  children: <Widget>[Image.asset('assets/img_1.png')],
-                ),
-              ),
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            child: Column(
+              children: <Widget>[Image.asset('assets/img_1.png')],
             ),
           ),
-        ));
+        ),
+      ),
+    );
   }
 }

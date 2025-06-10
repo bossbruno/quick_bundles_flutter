@@ -25,18 +25,16 @@ class _MTNPageState extends State<MTNPage> {
 
   @override
   Widget build(BuildContext context) {
-    // Figma Flutter Generator Group1Widget - GROUP
-    return MaterialApp(
-        home: SafeArea(
-          child: Scaffold(
-            body: Center(
-              child: SingleChildScrollView(
-                child: Column(
-                  children: <Widget>[Image.asset('assets/img_2.png')],
-                ),
-              ),
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            child: Column(
+              children: <Widget>[Image.asset('assets/img_2.png')],
             ),
           ),
-        ));
+        ),
+      ),
+    );
   }
 }
