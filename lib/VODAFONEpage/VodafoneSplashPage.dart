@@ -14,8 +14,8 @@ class _VodafonePageState extends State<VodafonePage> {
   void initState() {
     super.initState();
     Timer(
-      const Duration(seconds: 1),
-      () => Navigator.of(context).pushReplacement(MaterialPageRoute(
+        const Duration(seconds: 1),
+            () => Navigator.of(context).pushReplacement(MaterialPageRoute(
         builder: (BuildContext context) => const AirtelPage()
       ))
     );
@@ -27,11 +27,11 @@ class _VodafonePageState extends State<VodafonePage> {
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            child: Column(
-              children: <Widget>[Image.asset('assets/img.png')],
+              child: Column(
+                children: <Widget>[Image.asset('assets/img.png')],
             ),
           ),
-        ),
+          ),
       ),
     );
   }

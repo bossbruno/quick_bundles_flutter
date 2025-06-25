@@ -1,0 +1,141 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
+class DatabaseService {
+  final FirebaseFirestore _db = FirebaseFirestore.instance;
+
+  // Collection References
+  CollectionReference get usersCollection => _db.collection('users');
+  CollectionReference get transactionsCollection => _db.collection('transactions');
+  CollectionReference get bundlesCollection => _db.collection('bundles');
+
+  // Create new user document
+  Future<void> createUserDocument(User user, {String? name, String? phoneNumber}) async {
+    await usersCollection.doc(user.uid).set({
+      'email': user.email,
+      'name': name ?? '',
+      'phoneNumber': phoneNumber ?? '',
+      'createdAt': Timestamp.now(),
+      'balance': 0.0,
+      'totalTransactions': 0,
+      'isVerified': false,
+      'lastLogin': Timestamp.now(),
+    });
+  }
+
+  // Update user profile
+  Future<void> updateUserProfile(String userId, Map<String, dynamic> data) async {
+    await usersCollection.doc(userId).update(data);
+  }
+
+  // Get user data
+  Stream<DocumentSnapshot> getUserStream(String userId) {
+    return usersCollection.doc(userId).snapshots();
+  }
+
+  // Create a new transaction (including bundle purchases)
+  Future<DocumentReference> createTransaction({
+    required String userId,
+    required String type, // 'bundle_purchase', 'wallet_topup', etc.
+    required double amount,
+    required String status,
+    String? bundleId,
+    String? recipientNumber,
+    String? provider,
+  }) async {
+    Map<String, dynamic> transactionData = {
+      'userId': userId,
+      'type': type,
+      'amount': amount,
+      'status': status, // 'pending', 'processing', 'completed', 'failed'
+      'timestamp': Timestamp.now(),
+    };
+
+    // Add bundle-specific data if this is a bundle purchase
+    if (type == 'bundle_purchase' && bundleId != null) {
+      final bundleDoc = await bundlesCollection.doc(bundleId).get();
+      final bundleData = bundleDoc.data() as Map<String, dynamic>;
+      
+      transactionData.addAll({
+        'bundleId': bundleId,
+        'bundleName': bundleData['name'],
+        'recipientNumber': recipientNumber,
+        'provider': provider,
+        'dataAmount': bundleData['dataAmount'],
+        'validity': bundleData['validity'],
+      });
+    }
+
+    final transaction = await transactionsCollection.add(transactionData);
+
+    // Update user's total transactions
+    await usersCollection.doc(userId).update({
+      'totalTransactions': FieldValue.increment(1),
+    });
+
+    return transaction;
+  }
+
+  // Update transaction status
+  Future<void> updateTransactionStatus(String transactionId, String status) async {
+    await transactionsCollection.doc(transactionId).update({
+      'status': status,
+      'updatedAt': Timestamp.now(),
+    });
+  }
+
+  // Get user transactions (can filter by type)
+  Stream<QuerySnapshot> getUserTransactions(String userId, {String? type}) {
+    Query query = transactionsCollection
+        .where('userId', isEqualTo: userId)
+        .orderBy('timestamp', descending: true);
+    
+    if (type != null) {
+      query = query.where('type', isEqualTo: type);
+    }
+    
+    return query.snapshots();
+  }
+
+  // Create or update bundle
+  Future<DocumentReference> createBundle({
+    required String provider,
+    required String name,
+    required double price,
+    required int dataAmount,
+    required int validity,
+    required bool isAvailable,
+  }) async {
+    return await bundlesCollection.add({
+      'provider': provider,
+      'name': name,
+      'price': price,
+      'dataAmount': dataAmount,
+      'validity': validity,
+      'isAvailable': isAvailable,
+      'createdAt': Timestamp.now(),
+      'updatedAt': Timestamp.now(),
+    });
+  }
+
+  // Get available bundles by provider
+  Stream<QuerySnapshot> getBundlesByProvider(String provider) {
+    return bundlesCollection
+        .where('provider', isEqualTo: provider)
+        .where('isAvailable', isEqualTo: true)
+        .snapshots();
+  }
+
+  // Update user balance
+  Future<void> updateUserBalance(String userId, double amount) async {
+    await usersCollection.doc(userId).update({
+      'balance': FieldValue.increment(amount),
+    });
+  }
+
+  // Get user balance
+  Future<double> getUserBalance(String userId) async {
+    final doc = await usersCollection.doc(userId).get();
+    return (doc.data() as Map<String, dynamic>)['balance'] ?? 0.0;
+  }
+} 

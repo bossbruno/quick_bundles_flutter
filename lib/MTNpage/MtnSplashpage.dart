@@ -28,13 +28,13 @@ class _MTNPageState extends State<MTNPage> {
     return Scaffold(
       body: SafeArea(
         child: Center(
-          child: SingleChildScrollView(
-            child: Column(
-              children: <Widget>[Image.asset('assets/img_2.png')],
+              child: SingleChildScrollView(
+                child: Column(
+                  children: <Widget>[Image.asset('assets/img_2.png')],
+                ),
+              ),
             ),
           ),
-        ),
-      ),
     );
   }
 }

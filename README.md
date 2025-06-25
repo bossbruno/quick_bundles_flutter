@@ -34,6 +34,17 @@ This app is designed for anyone in Ghana who frequently uses shortcodes for mobi
 *   **Regular Updates:** The app will be regularly updated with new shortcodes and services as they become available.
 *   **User-Friendly Interface:** The app has a clean and intuitive interface that is easy to use.
 
+## P2P Marketplace Features
+
+In addition to shortcode simplification, Quick Bundles Ghana now includes a peer-to-peer marketplace for purchasing data bundles directly from vendors across the country.
+
+*   **Dual User Roles:** Users can sign up as a regular **User** to buy bundles or as a **Vendor** to sell them.
+*   **Vendor Dashboard:** Vendors get a dedicated dashboard to create, manage, and track their bundle listings and sales.
+*   **Vendor Verification:** To ensure trust and safety, vendors are required to go through a verification process, which includes submitting their Ghana Card.
+*   **Marketplace:** Users can browse a wide variety of data bundle listings from different vendors, comparing prices and data amounts.
+*   **Real-Time Chat:** A built-in chat feature allows direct communication between buyers and vendors to coordinate transactions and resolve issues.
+*   **Secure Transactions:** The platform facilitates the connection, with payments handled via established methods like mobile money.
+
 ## Benefits
 
 *   **Eliminates Memorization:** No more struggling to remember complex shortcodes.
