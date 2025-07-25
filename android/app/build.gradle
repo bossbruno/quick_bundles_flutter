@@ -7,6 +7,12 @@ plugins {
     id "dev.flutter.flutter-gradle-plugin"
 }
 
+configurations.all {
+    resolutionStrategy {
+        force 'androidx.webkit:webkit:1.7.0'
+    }
+}
+
 def localProperties = new Properties()
 def localPropertiesFile = rootProject.file('local.properties')
 if (localPropertiesFile.exists()) {
@@ -39,6 +45,7 @@ android {
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
+        coreLibraryDesugaringEnabled true
     }
 
     kotlinOptions {
@@ -110,6 +117,7 @@ dependencies {
     implementation platform('com.google.firebase:firebase-bom:33.14.0')
     implementation("com.google.firebase:firebase-firestore")
     implementation("com.google.firebase:firebase-auth:21.1.0")
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
 }
 
 

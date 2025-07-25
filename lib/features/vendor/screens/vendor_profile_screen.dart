@@ -14,10 +14,6 @@ class VendorProfileScreen extends StatefulWidget {
 }
 
 class _VendorProfileScreenState extends State<VendorProfileScreen> {
-  double? _minPrice;
-  double? _maxPrice;
-  double? _minData;
-  double? _maxData;
   NetworkProvider? _selectedProvider;
   final ListingRepository _listingRepository = ListingRepository();
 
@@ -64,44 +60,6 @@ class _VendorProfileScreenState extends State<VendorProfileScreen> {
                 child: Row(
                   children: [
                     Expanded(
-                      child: TextField(
-                        decoration: const InputDecoration(labelText: 'Min Price'),
-                        keyboardType: TextInputType.number,
-                        onChanged: (v) => setState(() => _minPrice = double.tryParse(v)),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: TextField(
-                        decoration: const InputDecoration(labelText: 'Max Price'),
-                        keyboardType: TextInputType.number,
-                        onChanged: (v) => setState(() => _maxPrice = double.tryParse(v)),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: TextField(
-                        decoration: const InputDecoration(labelText: 'Min Data (GB)'),
-                        keyboardType: TextInputType.number,
-                        onChanged: (v) => setState(() => _minData = double.tryParse(v)),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: TextField(
-                        decoration: const InputDecoration(labelText: 'Max Data (GB)'),
-                        keyboardType: TextInputType.number,
-                        onChanged: (v) => setState(() => _maxData = double.tryParse(v)),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Row(
-                  children: [
-                    Expanded(
                       child: DropdownButtonFormField<NetworkProvider>(
                         value: _selectedProvider,
                         decoration: const InputDecoration(labelText: 'Network'),
@@ -126,10 +84,6 @@ class _VendorProfileScreenState extends State<VendorProfileScreen> {
                     if (snap.hasError) return Center(child: Text('Error: \\${snap.error}'));
                     if (!snap.hasData) return const Center(child: CircularProgressIndicator());
                     var bundles = snap.data!;
-                    if (_minPrice != null) bundles = bundles.where((b) => b.price >= _minPrice!).toList();
-                    if (_maxPrice != null) bundles = bundles.where((b) => b.price <= _maxPrice!).toList();
-                    if (_minData != null) bundles = bundles.where((b) => b.dataAmount >= _minData!).toList();
-                    if (_maxData != null) bundles = bundles.where((b) => b.dataAmount <= _maxData!).toList();
                     if (_selectedProvider != null) bundles = bundles.where((b) => b.provider == _selectedProvider).toList();
                     bundles.sort((a, b) => a.price.compareTo(b.price));
                     if (bundles.isEmpty) return const Center(child: Text('No bundles found'));

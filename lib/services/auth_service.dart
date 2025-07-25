@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'database_service.dart';
+import 'onesignal_service.dart';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -31,6 +32,9 @@ class AuthService {
         phoneNumber: phoneNumber,
       );
       
+      // Save OneSignal player ID to Firestore
+      await OneSignalService.savePlayerIdToFirestore();
+      
       return credential;
     } on FirebaseAuthException catch (e) {
       throw _handleAuthException(e);
@@ -53,6 +57,9 @@ class AuthService {
         'lastLogin': DateTime.now(),
       });
       
+      // Save OneSignal player ID to Firestore
+      await OneSignalService.savePlayerIdToFirestore();
+      
       return credential;
     } on FirebaseAuthException catch (e) {
       throw _handleAuthException(e);
@@ -62,6 +69,8 @@ class AuthService {
   // Sign out
   Future<void> signOut() async {
     await _auth.signOut();
+    // Logout from OneSignal
+    await OneSignalService.logout();
   }
 
   // Password reset email

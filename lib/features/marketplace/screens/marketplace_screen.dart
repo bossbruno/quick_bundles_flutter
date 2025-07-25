@@ -70,11 +70,10 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
                       ),
                       const SizedBox(width: 8),
-                      Icon(
-                        isVerified ? Icons.check_circle : Icons.cancel,
-                        color: isVerified ? Colors.green : Colors.red,
-                        size: 22,
-                      ),
+                      if (isVerified)
+                        const Icon(Icons.verified, color: Colors.blue, size: 22),
+                      if (!isVerified)
+                        const Icon(Icons.cancel, color: Colors.red, size: 22),
                     ],
                   );
                 },
@@ -83,7 +82,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
           preferredSize: const Size.fromHeight(48),
           child: Theme(
             data: Theme.of(context).copyWith(
-              tabBarTheme: TabBarTheme(
+              tabBarTheme: TabBarThemeData(
                 indicator: BoxDecoration(
                   color: Color(0xFFFFB300),
                   borderRadius: BorderRadius.circular(24),
@@ -197,11 +196,11 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
               tooltip: 'Login',
             )
           else
-            IconButton(
+          IconButton(
               icon: const Icon(Icons.logout),
               onPressed: _signOut,
               tooltip: 'Logout',
-            ),
+          ),
         ],
       ),
       body: TabBarView(
@@ -221,11 +220,12 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
       stream: FirebaseFirestore.instance
           .collection('chats')
           .where('buyerId', isEqualTo: currentUser.uid)
+          .where('status', isNotEqualTo: 'completed')
           .orderBy('updatedAt', descending: true)
           .snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
-                  return Center(child: Text('Error: ${snapshot.error}'));
+          return Center(child: Text('Error: \\${snapshot.error}'));
                 }
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
@@ -262,7 +262,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                     return ListTile(
                       leading: const Icon(Icons.chat_bubble_outline),
                       title: Text(vendorName),
-                      subtitle: Text('Status: ${status.toString().toUpperCase()}'),
+                      subtitle: Text('Status: \\${status.toString().toUpperCase()}'),
                       trailing: unread > 0
                           ? Container(
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -277,7 +277,6 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                             )
                           : null,
                       onTap: () async {
-                        // Get bundle info for ChatScreen
                         final bundleSnap = await FirebaseFirestore.instance.collection('listings').doc(bundleId).get();
                         final bundleData = bundleSnap.data() as Map<String, dynamic>?;
                         if (bundleData != null) {
@@ -317,7 +316,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return Center(child: Text('Error: ${snapshot.error}'));
+          return Center(child: Text('Error: \\${snapshot.error}'));
         }
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -330,25 +329,103 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
           itemCount: transactions.length,
           itemBuilder: (context, index) {
             final tx = transactions[index].data() as Map<String, dynamic>;
-            return Card(
-              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: ListTile(
-                leading: const Icon(Icons.receipt_long),
-                title: Text('Bundle: ${tx['bundleName'] ?? ''}'),
-                subtitle: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Vendor: ${tx['vendorName'] ?? ''}'),
-                    Text('Amount: GH₵${tx['amount']?.toStringAsFixed(2) ?? ''}'),
-                    Text('Completed: ${tx['timestamp'] != null ? (tx['timestamp'] as Timestamp).toDate().toString().split(".")[0] : ''}'),
-                  ],
-                ),
-              ),
+            final completedTime = tx['timestamp'] != null ? (tx['timestamp'] as Timestamp).toDate() : null;
+            final formattedDate = completedTime != null
+                ? '${completedTime.day.toString().padLeft(2, '0')} '
+                  '${_monthName(completedTime.month)} ${completedTime.year}, '
+                  '${_formatTime(completedTime)}'
+                : '';
+            final vendorId = tx['vendorId'] ?? '';
+            return FutureBuilder<DocumentSnapshot>(
+              future: FirebaseFirestore.instance.collection('users').doc(vendorId).get(),
+              builder: (context, userSnap) {
+                bool isVerified = false;
+                if (userSnap.hasData && userSnap.data!.exists) {
+                  final userData = userSnap.data!.data() as Map<String, dynamic>?;
+                  isVerified = userData?['isVerified'] ?? userData?['verificationStatus'] ?? false;
+                }
+                return Card(
+                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  elevation: 3,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.storefront, size: 20, color: Colors.orange),
+                            const SizedBox(width: 6),
+                            Text(
+                              tx['vendorName'] ?? '',
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                            ),
+                            if (isVerified) ...[
+                              const SizedBox(width: 4),
+                              Icon(Icons.verified, color: Colors.blue, size: 18),
+                            ],
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            const Icon(Icons.monetization_on, size: 18, color: Colors.teal),
+                            const SizedBox(width: 4),
+                            Text('GHS ${tx['amount']?.toStringAsFixed(2) ?? ''}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                            const SizedBox(width: 16),
+                            if (tx['dataAmount'] != null && tx['dataAmount'].toString().isNotEmpty) ...[
+                              const Icon(Icons.swap_vert, size: 18, color: Colors.deepPurple),
+                              const SizedBox(width: 4),
+                              Text('${tx['dataAmount']} GB', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                              const SizedBox(width: 16),
+                            ],
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            const Icon(Icons.phone_android, size: 18, color: Colors.blueGrey),
+                            const SizedBox(width: 4),
+                            Text('Recipient: ${tx['recipientNumber'] ?? ''}', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            const Icon(Icons.calendar_today, size: 16, color: Colors.deepPurple),
+                            const SizedBox(width: 4),
+                            Text(
+                              formattedDate,
+                              style: const TextStyle(fontSize: 13, color: Colors.black87, fontWeight: FontWeight.w500),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
             );
           },
         );
       },
     );
+  }
+
+  String _monthName(int month) {
+    const months = [
+      '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+    return months[month];
+  }
+
+  String _formatTime(DateTime dt) {
+    final hour = dt.hour > 12 ? dt.hour - 12 : dt.hour == 0 ? 12 : dt.hour;
+    final ampm = dt.hour >= 12 ? 'PM' : 'AM';
+    final min = dt.minute.toString().padLeft(2, '0');
+    return '$hour:$min $ampm';
   }
 
   Widget _buildFilterChip(String label, VoidCallback onDelete) {
@@ -548,9 +625,9 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                     },
                     style: ElevatedButton.styleFrom(foregroundColor: Colors.black),
                     child: const Text('Continue', style: TextStyle(color: Colors.black)),
-                  ),
-                ],
-              ),
+            ),
+          ],
+        ),
             );
             if (result != null && result.isNotEmpty) {
               Navigator.push(
@@ -563,7 +640,13 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                     recipientNumber: result,
                   ),
                 ),
-              );
+              ).then((_) async {
+                // After navigation, start a new purchase in the chat
+                // You may need to pass the amount as well if available
+                // For now, you can prompt for amount or use a default
+                // Example:
+                // await chatScreenKey.currentState?.startNewPurchase(amount);
+              });
             }
           },
         );
@@ -677,263 +760,352 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
   }
 
   Widget _buildMarketplaceTab(User? currentUser) {
-    return StreamBuilder<List<BundleListing>>(
-      stream: _listingRepository.getAllListings(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Center(child: Text('Error: \\${snapshot.error}'));
-        }
-        if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return const Center(child: Text('No bundles available'));
-        }
-        final listings = snapshot.data!;
-        return ListView.builder(
-          itemCount: listings.length,
-          itemBuilder: (context, index) {
-            final listing = listings[index];
-            return FutureBuilder<DocumentSnapshot>(
-              future: FirebaseFirestore.instance.collection('users').doc(listing.vendorId).get(),
-              builder: (context, userSnap) {
-                String vendorName = 'Vendor';
-                String? vendorAvatarUrl;
-                bool isVerified = false;
-                if (userSnap.hasData && userSnap.data!.exists) {
-                  final userData = userSnap.data!.data() as Map<String, dynamic>?;
-                  vendorName = userData?['businessName'] ?? userData?['name'] ?? 'Vendor';
-                  vendorAvatarUrl = userData?['avatarUrl'];
-                  isVerified = userData?['verificationStatus'] ?? userData?['isVerified'] ?? false;
-                }
-                // Color coding for Buy Now button
-                Color buttonColor;
-                String networkLabel;
-                IconData networkIcon;
-                switch (listing.provider) {
-                  case NetworkProvider.MTN:
-                    buttonColor = const Color(0xFFFFB300); // MTN yellow
-                    networkLabel = 'MTN';
-                    networkIcon = Icons.wifi;
-                    break;
-                  case NetworkProvider.AIRTELTIGO:
-                    buttonColor = const Color(0xFF1976D2); // AirtelTigo blue
-                    networkLabel = 'AirtelTigo';
-                    networkIcon = Icons.wifi;
-                    break;
-                  case NetworkProvider.TELECEL:
-                    buttonColor = const Color(0xFFD32F2F); // Telecel red
-                    networkLabel = 'Telecel';
-                    networkIcon = Icons.wifi;
-                    break;
-                  default:
-                    buttonColor = Colors.grey;
-                    networkLabel = 'Unknown';
-                    networkIcon = Icons.wifi;
-                }
-                // Payment methods
-                final paymentMethods = listing.paymentMethods.entries
-                  .where((e) => e.value == true)
-                  .map((e) => e.key.toUpperCase())
-                  .toList();
-                return Card(
-                  elevation: 4,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            GestureDetector(
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => VendorProfileScreen(vendorId: listing.vendorId),
-                                  ),
-                                );
-                              },
-                              child: CircleAvatar(
-                                backgroundImage: vendorAvatarUrl != null ? NetworkImage(vendorAvatarUrl) : null,
-                                backgroundColor: Colors.grey[200],
-                                radius: 24,
-                                child: vendorAvatarUrl == null ? Icon(Icons.storefront, color: buttonColor, size: 24) : null,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
+    return Column(
+      children: [
+        // Filter bar
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            children: [
+              // Network filter
+              Expanded(
+                child: DropdownButtonFormField<NetworkProvider>(
+                  value: _selectedProvider,
+                  decoration: const InputDecoration(
+                    labelText: 'Network',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  ),
+                  items: [
+                    const DropdownMenuItem<NetworkProvider>(
+                      value: null,
+                      child: Text('All Networks'),
+                    ),
+                    ...NetworkProvider.values.map((provider) => DropdownMenuItem(
+                          value: provider,
+                          child: Text(provider.toString().split('.').last),
+                        )),
+                  ],
+                  onChanged: (value) => setState(() => _selectedProvider = value),
+                ),
+              ),
+              const SizedBox(width: 12),
+              // Bundle size filter
+              Expanded(
+                child: DropdownButtonFormField<double>(
+                  value: _minDataAmount,
+                  decoration: const InputDecoration(
+                    labelText: 'Min Size (GB)',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  ),
+                  items: [
+                    const DropdownMenuItem<double>(
+                      value: null,
+                      child: Text('Any Size'),
+                    ),
+                    ...[0.5, 1, 2, 5, 10, 20, 50].map((size) => DropdownMenuItem(
+                          value: size.toDouble(),
+                          child: Text(size == size.roundToDouble() ? '${size.toInt()} GB' : '$size GB'),
+                        )),
+                  ],
+                  onChanged: (value) => setState(() => _minDataAmount = value),
+                ),
+              ),
+              // Clear filters button
+              IconButton(
+                icon: const Icon(Icons.filter_alt_off, color: Colors.redAccent),
+                tooltip: 'Clear Filters',
+                onPressed: () {
+                  setState(() {
+                    _selectedProvider = null;
+                    _minDataAmount = null;
+                  });
+                },
+              ),
+            ],
+          ),
+        ),
+        // Listings
+        Expanded(
+          child: StreamBuilder<List<BundleListing>>(
+            stream: _listingRepository.getAllListings(),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return Center(child: Text('Error: \\${snapshot.error}'));
+              }
+              if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                return const Center(child: Text('No bundles available'));
+              }
+              // Apply filters
+              List<BundleListing> listings = snapshot.data!;
+              if (_selectedProvider != null) {
+                listings = listings.where((l) => l.provider == _selectedProvider).toList();
+              }
+              if (_minDataAmount != null) {
+                listings = listings.where((l) => l.dataAmount >= _minDataAmount!).toList();
+              }
+              if (listings.isEmpty) {
+                return const Center(child: Text('No bundles match your filters'));
+              }
+              return ListView.builder(
+                itemCount: listings.length,
+                itemBuilder: (context, index) {
+                  final listing = listings[index];
+                  return FutureBuilder<DocumentSnapshot>(
+                    future: FirebaseFirestore.instance.collection('users').doc(listing.vendorId).get(),
+                    builder: (context, userSnap) {
+                      String vendorName = 'Vendor';
+                      String? vendorAvatarUrl;
+                      bool isVerified = false;
+                      if (userSnap.hasData && userSnap.data!.exists) {
+                        final userData = userSnap.data!.data() as Map<String, dynamic>?;
+                        vendorName = userData?['businessName'] ?? userData?['name'] ?? 'Vendor';
+                        vendorAvatarUrl = userData?['avatarUrl'];
+                        isVerified = userData?['verificationStatus'] ?? userData?['isVerified'] ?? false;
+                      }
+                      // Color coding for Buy Now button
+                      Color buttonColor;
+                      String networkLabel;
+                      IconData networkIcon;
+                      switch (listing.provider) {
+                        case NetworkProvider.MTN:
+                          buttonColor = const Color(0xFFFFB300); // MTN yellow
+                          networkLabel = 'MTN';
+                          networkIcon = Icons.wifi;
+                          break;
+                        case NetworkProvider.AIRTELTIGO:
+                          buttonColor = const Color(0xFF1976D2); // AirtelTigo blue
+                          networkLabel = 'AirtelTigo';
+                          networkIcon = Icons.wifi;
+                          break;
+                        case NetworkProvider.TELECEL:
+                          buttonColor = const Color(0xFFD32F2F); // Telecel red
+                          networkLabel = 'Telecel';
+                          networkIcon = Icons.wifi;
+                          break;
+                        default:
+                          buttonColor = Colors.grey;
+                          networkLabel = 'Unknown';
+                          networkIcon = Icons.wifi;
+                      }
+                      // Payment methods
+                      final paymentMethods = listing.paymentMethods.entries
+                        .where((e) => e.value == true)
+                        .map((e) => e.key.toUpperCase())
+                        .toList();
+                      return Card(
+                        elevation: 4,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Row(
-                                    children: [
-                                      Flexible(
-                                        child: GestureDetector(
-                                          onTap: () {
-                                            Navigator.push(
-                                              context,
-                                              MaterialPageRoute(
-                                                builder: (context) => VendorProfileScreen(vendorId: listing.vendorId),
+                                  GestureDetector(
+                                    onTap: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) => VendorProfileScreen(vendorId: listing.vendorId),
+                                        ),
+                                      );
+                                    },
+                                    child: CircleAvatar(
+                                      backgroundImage: vendorAvatarUrl != null ? NetworkImage(vendorAvatarUrl) : null,
+                                      backgroundColor: Colors.grey[200],
+                                      radius: 24,
+                                      child: vendorAvatarUrl == null ? Icon(Icons.storefront, color: buttonColor, size: 24) : null,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Flexible(
+                                              child: GestureDetector(
+                                                onTap: () {
+                                                  Navigator.push(
+                                                    context,
+                                                    MaterialPageRoute(
+                                                      builder: (context) => VendorProfileScreen(vendorId: listing.vendorId),
+                                                    ),
+                                                  );
+                                                },
+                                                child: Text(
+                                                  vendorName,
+                                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                                  overflow: TextOverflow.ellipsis,
+                                                  maxLines: 1,
+                                                ),
                                               ),
-                                            );
-                                          },
-                                          child: Text(
-                                            vendorName,
-                                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                                            overflow: TextOverflow.ellipsis,
-                                            maxLines: 1,
+                                            ),
+                                            if (isVerified) ...[
+                                              const SizedBox(width: 4),
+                                              const Icon(Icons.verified, color: Colors.blue, size: 16),
+                                            ],
+                                          ],
+                                        ),
+                                        Row(
+                                          children: [
+                                            Icon(networkIcon, color: buttonColor, size: 18),
+                                            const SizedBox(width: 4),
+                                            Text(networkLabel, style: TextStyle(color: buttonColor, fontWeight: FontWeight.w600)),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                        decoration: BoxDecoration(
+                                          color: buttonColor.withOpacity(0.12),
+                                          borderRadius: BorderRadius.circular(16),
+                                        ),
+                                        child: Text(
+                                          '${listing.dataAmount}GB',
+                                          style: GoogleFonts.poppins(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 18,
+                                            color: buttonColor,
                                           ),
                                         ),
                                       ),
-                                      if (isVerified) ...[
-                                        const SizedBox(width: 4),
-                                        const Icon(Icons.verified, color: Colors.green, size: 16),
-                                      ],
-                                    ],
-                                  ),
-                                  Row(
-                                    children: [
-                                      Icon(networkIcon, color: buttonColor, size: 18),
-                                      const SizedBox(width: 4),
-                                      Text(networkLabel, style: TextStyle(color: buttonColor, fontWeight: FontWeight.w600)),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        'GHS ${listing.price.toStringAsFixed(2)}',
+                                        style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 18),
+                                      ),
                                     ],
                                   ),
                                 ],
                               ),
-                            ),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                  decoration: BoxDecoration(
-                                    color: buttonColor.withOpacity(0.12),
-                                    borderRadius: BorderRadius.circular(16),
-                                  ),
-                                  child: Text(
-                                    '${listing.dataAmount}GB',
-                                    style: GoogleFonts.poppins(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 18,
-                                      color: buttonColor,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  'GHS ${listing.price.toStringAsFixed(2)}',
-                                  style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 18),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Text(listing.description, style: const TextStyle(fontSize: 15)),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            const Icon(Icons.payments, size: 18),
-                            const SizedBox(width: 4),
-                            Text(paymentMethods.join(', '), style: const TextStyle(fontWeight: FontWeight.w500)),
-                          ],
-                        ),
-                        if (listing.estimatedDeliveryTime > 0 || listing.availableStock > 0)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 6),
-                            child: Row(
-                              children: [
-                                if (listing.estimatedDeliveryTime > 0) ...[
-                                  const Icon(Icons.timer, size: 16),
-                                  const SizedBox(width: 2),
-                                  Text('${listing.estimatedDeliveryTime} min delivery'),
-                                  const SizedBox(width: 12),
+                              const SizedBox(height: 8),
+                              Text(listing.description, style: const TextStyle(fontSize: 15)),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  const Icon(Icons.payments, size: 18),
+                                  const SizedBox(width: 4),
+                                  Text(paymentMethods.join(', '), style: const TextStyle(fontWeight: FontWeight.w500)),
                                 ],
-                                if (listing.availableStock > 0) ...[
-                                  const Icon(Icons.inventory_2, size: 16),
-                                  const SizedBox(width: 2),
-                                  Text('Stock: ${listing.availableStock}'),
-                                ],
-                              ],
-                            ),
-                          ),
-                        const SizedBox(height: 10),
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: ElevatedButton(
-                            onPressed: () async {
-                              final recipientController = TextEditingController();
-                              final result = await showDialog<String>(
-                                context: context,
-                                builder: (context) => AlertDialog(
-                                  title: const Text('Enter Recipient Number'),
-                                  content: TextField(
-                                    controller: recipientController,
-                                    keyboardType: TextInputType.phone,
-                                    inputFormatters: [
-                                      FilteringTextInputFormatter.digitsOnly,
-                                      LengthLimitingTextInputFormatter(10),
+                              ),
+                              if (listing.estimatedDeliveryTime > 0 || listing.availableStock > 0)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 6),
+                                  child: Row(
+                                    children: [
+                                      if (listing.estimatedDeliveryTime > 0) ...[
+                                        const Icon(Icons.timer, size: 16),
+                                        const SizedBox(width: 2),
+                                        Text('${listing.estimatedDeliveryTime} min delivery'),
+                                        const SizedBox(width: 12),
+                                      ],
+                                      if (listing.availableStock > 0) ...[
+                                        const Icon(Icons.inventory_2, size: 16),
+                                        const SizedBox(width: 2),
+                                        Text('Stock: ${listing.availableStock}'),
+                                      ],
                                     ],
-                                    decoration: const InputDecoration(
-                                      labelText: 'Recipient Number',
-                                      hintText: 'e.g. 024XXXXXXX',
-                                    ),
                                   ),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () => Navigator.pop(context),
-                                      child: const Text('Cancel', style: TextStyle(color: Colors.black)),
-                                    ),
-                                    ElevatedButton(
-                                      onPressed: () {
-                                        final number = recipientController.text.trim();
-                                        if (number.length != 10) {
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            const SnackBar(content: Text('Please enter a valid 10-digit recipient number')),
-                                          );
-                                          return;
-                                        }
-                                        Navigator.pop(context, number);
-                                      },
-                                      style: ElevatedButton.styleFrom(foregroundColor: Colors.black),
-                                      child: const Text('Continue', style: TextStyle(color: Colors.black)),
-                                    ),
-                                  ],
                                 ),
-                              );
-                              if (result != null && result.isNotEmpty) {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => ChatScreen(
-                                      listing: listing,
-                                      vendorId: listing.vendorId,
-                                      businessName: vendorName,
-                                      recipientNumber: result,
-                                    ),
+                              const SizedBox(height: 10),
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: ElevatedButton(
+                                  onPressed: () async {
+                                    final recipientController = TextEditingController();
+                                    final result = await showDialog<String>(
+                                      context: context,
+                                      builder: (context) => AlertDialog(
+                                        title: const Text('Enter Recipient Number'),
+                                        content: TextField(
+                                          controller: recipientController,
+                                          keyboardType: TextInputType.phone,
+                                          inputFormatters: [
+                                            FilteringTextInputFormatter.digitsOnly,
+                                            LengthLimitingTextInputFormatter(10),
+                                          ],
+                                          decoration: const InputDecoration(
+                                            labelText: 'Recipient Number',
+                                            hintText: 'e.g. 024XXXXXXX',
+                                          ),
+                                        ),
+                                        actions: [
+                                          TextButton(
+                                            onPressed: () => Navigator.pop(context),
+                                            child: const Text('Cancel', style: TextStyle(color: Colors.black)),
+                                          ),
+                                          ElevatedButton(
+                                            onPressed: () {
+                                              final number = recipientController.text.trim();
+                                              if (number.length != 10) {
+                                                ScaffoldMessenger.of(context).showSnackBar(
+                                                  const SnackBar(content: Text('Please enter a valid 10-digit recipient number')),
+                                                );
+                                                return;
+                                              }
+                                              Navigator.pop(context, number);
+                                            },
+                                            style: ElevatedButton.styleFrom(foregroundColor: Colors.black),
+                                            child: const Text('Continue', style: TextStyle(color: Colors.black)),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                    if (result != null && result.isNotEmpty) {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) => ChatScreen(
+                                            listing: listing,
+                                            vendorId: listing.vendorId,
+                                            businessName: vendorName,
+                                            recipientNumber: result,
+                                          ),
+                                        ),
+                                      ).then((_) async {
+                                        // After navigation, start a new purchase in the chat
+                                        // You may need to pass the amount as well if available
+                                        // For now, you can prompt for amount or use a default
+                                        // Example:
+                                        // await chatScreenKey.currentState?.startNewPurchase(amount);
+                                      });
+                                    }
+                                  },
+                                  child: const Text('Buy Now'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: buttonColor,
+                                    foregroundColor: Colors.white,
+                                    shape: const StadiumBorder(),
+                                    textStyle: const TextStyle(fontWeight: FontWeight.bold),
                                   ),
-                                );
-                              }
-                            },
-                            child: const Text('Buy Now'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: buttonColor,
-                              foregroundColor: Colors.white,
-                              shape: const StadiumBorder(),
-                              textStyle: const TextStyle(fontWeight: FontWeight.bold),
-                            ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            );
-          },
-        );
-      },
+                      );
+                    },
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 

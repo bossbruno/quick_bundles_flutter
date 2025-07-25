@@ -427,9 +427,11 @@ class _SignupScreenState extends State<SignupScreen> {
                         ElevatedButton.icon(
                           onPressed: _pickGhanaCardImage,
                           icon: const Icon(Icons.upload_file),
-                          label: Text(_ghanaCardImage == null
-                              ? 'Upload Ghana Card Photo'
-                              : 'Change Photo'),
+                          label: Text(_ghanaCardImage == null ? 'Upload Ghana Card Photo' : 'Change Photo'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Theme.of(context).primaryColor,
+                            foregroundColor: Colors.white,
+                          ),
                         ),
                       ],
                     ),
@@ -442,11 +444,12 @@ class _SignupScreenState extends State<SignupScreen> {
                 onPressed: _isLoading ? null : _signUp,
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
+                  backgroundColor: Theme.of(context).primaryColor,
                   foregroundColor: Colors.white,
                 ),
                 child: _isLoading
-                    ? const CircularProgressIndicator()
-                    : const Text('Sign Up', style: TextStyle(color: Colors.white)),
+                    ? const CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(Colors.white))
+                    : const Text('Sign Up', style: TextStyle(fontSize: 16)),
               ),
             ],
           ),

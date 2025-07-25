@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import 'package:firebase_storage/firebase_storage.dart';
+import '../../../services/notification_service.dart';
 
 class VendorChatDetailScreen extends StatefulWidget {
   final String chatId;
@@ -32,6 +33,7 @@ class _VendorChatDetailScreenState extends State<VendorChatDetailScreen> {
   bool _isSending = false;
   final ImagePicker _picker = ImagePicker();
   File? _imageFile;
+  String? activeOrderId;
 
   @override
   void initState() {
@@ -52,6 +54,7 @@ class _VendorChatDetailScreenState extends State<VendorChatDetailScreen> {
     if (chatDoc.exists) {
       setState(() {
         orderStatus = chatDoc['status'] ?? 'pending';
+        activeOrderId = chatDoc['activeOrderId'];
       });
       // Load bundle info
       final bundleId = chatDoc['bundleId'];
@@ -116,17 +119,32 @@ class _VendorChatDetailScreenState extends State<VendorChatDetailScreen> {
         await ref.putFile(_imageFile!);
         imageUrl = await ref.getDownloadURL();
       }
+      
+      final messageText = _messageController.text.trim();
+      
       await FirebaseFirestore.instance
           .collection('chats')
           .doc(widget.chatId)
           .collection('messages')
           .add({
         'senderId': user!.uid,
-        'text': _messageController.text.trim(),
+        'text': messageText,
         'timestamp': FieldValue.serverTimestamp(),
         'isRead': false,
         'imageUrl': imageUrl,
       });
+      
+      // Send notification to buyer
+      if (user!.uid != widget.buyerId) {
+        await NotificationService().sendChatNotification(
+          recipientUserId: widget.buyerId,
+          senderName: user!.displayName ?? 'Vendor',
+          message: imageUrl != null ? '📷 Image' : messageText,
+          chatId: widget.chatId,
+          bundleId: widget.bundleId,
+        );
+      }
+      
       _messageController.clear();
       setState(() => _imageFile = null);
       _scrollToBottom();
@@ -156,48 +174,14 @@ class _VendorChatDetailScreenState extends State<VendorChatDetailScreen> {
   }
 
   void _updateStatus(String status) async {
-    await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).update({
+    if (activeOrderId != null) {
+      await FirebaseFirestore.instance.collection('transactions').doc(activeOrderId).update({
       'status': status,
       'updatedAt': FieldValue.serverTimestamp(),
     });
     setState(() {
       orderStatus = status;
     });
-    if (status == 'completed' && mounted) {
-      // Check if transaction already exists for this chat
-      final txQuery = await FirebaseFirestore.instance
-          .collection('transactions')
-          .where('chatId', isEqualTo: widget.chatId)
-          .limit(1)
-          .get();
-      if (txQuery.docs.isEmpty) {
-        // Fetch chat and bundle info
-        final chatDoc = await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).get();
-        final chatData = chatDoc.data() ?? {};
-        final bundleId = chatData['bundleId'] ?? widget.bundleId;
-        final userId = chatData['buyerId'] ?? widget.buyerId;
-        final vendorId = chatData['vendorId'] ?? user?.uid;
-        final recipientNumber = chatData['recipientNumber'] ?? '';
-        final bundleSnap = await FirebaseFirestore.instance.collection('listings').doc(bundleId).get();
-        final bundleData = bundleSnap.data() ?? {};
-        await FirebaseFirestore.instance.collection('transactions').add({
-          'chatId': widget.chatId,
-          'bundleId': bundleId,
-          'bundleName': bundleData['description'] ?? '',
-          'dataAmount': bundleData['dataAmount'] ?? '',
-          'amount': bundleData['price'] ?? 0.0,
-          'recipientNumber': recipientNumber,
-          'timestamp': FieldValue.serverTimestamp(),
-          'type': 'bundle_purchase',
-          'userId': userId,
-          'vendorId': vendorId,
-          'provider': bundleData['provider'] ?? '',
-          'status': 'completed',
-        });
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Order marked as completed!')),
-      );
     }
   }
 
@@ -209,7 +193,7 @@ class _VendorChatDetailScreenState extends State<VendorChatDetailScreen> {
       ),
       body: Column(
         children: [
-          // Bundle info and status
+          // Bundle info and order status (from chat document)
           Card(
             margin: const EdgeInsets.all(12),
             child: Padding(
@@ -238,33 +222,66 @@ class _VendorChatDetailScreenState extends State<VendorChatDetailScreen> {
                     ),
                   ],
                   const SizedBox(height: 8),
-                  Row(
+                  // Order status from chat document
+                  StreamBuilder<DocumentSnapshot>(
+                    stream: FirebaseFirestore.instance.collection('chats').doc(widget.chatId).snapshots(),
+                    builder: (context, chatSnap) {
+                      if (!chatSnap.hasData || !chatSnap.data!.exists) {
+                        return const SizedBox();
+                      }
+                      final chatData = chatSnap.data!.data() as Map<String, dynamic>?;
+                      String chatStatus = chatData?['status'] ?? 'pending';
+                      return Row(
                     children: [
                       const Text('Order Status: '),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                         decoration: BoxDecoration(
-                          color: _statusColor(orderStatus),
+                              color: _statusColor(chatStatus),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
-                          orderStatus.replaceAll('_', ' ').toUpperCase(),
+                              chatStatus.replaceAll('_', ' ').toUpperCase(),
                           style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                         ),
                       ),
                       const SizedBox(width: 12),
                       DropdownButton<String>(
-                        value: orderStatus,
+                            value: chatStatus,
                         items: const [
                           DropdownMenuItem(value: 'pending', child: Text('Pending')),
                           DropdownMenuItem(value: 'processing', child: Text('Processing')),
                           DropdownMenuItem(value: 'data_sent', child: Text('Data Sent')),
+                              // No 'completed' option for vendor
                         ],
-                        onChanged: (val) {
-                          if (val != null) _updateStatus(val);
+                            onChanged: (val) async {
+                              if (val != null) {
+                                final batch = FirebaseFirestore.instance.batch();
+                                final chatRef = FirebaseFirestore.instance.collection('chats').doc(widget.chatId);
+                                final now = FieldValue.serverTimestamp();
+                                
+                                // Update chat status
+                                batch.update(chatRef, {
+                                  'status': val,
+                                  'updatedAt': now,
+                                });
+                                
+                                // Update transaction status if activeOrderId exists
+                                if (activeOrderId != null) {
+                                  final txRef = FirebaseFirestore.instance.collection('transactions').doc(activeOrderId);
+                                  batch.update(txRef, {
+                                    'status': val,
+                                    'updatedAt': now,
+                                  });
+                                }
+                                
+                                await batch.commit();
+                              }
                         },
                       ),
                     ],
+                      );
+                    },
                   ),
                 ],
               ),
@@ -402,18 +419,17 @@ class _VendorChatDetailScreenState extends State<VendorChatDetailScreen> {
                       ),
                     ),
                   IconButton(
-                    icon: const Icon(Icons.attach_file, color: Colors.blueGrey),
-                    onPressed: _isSending ? null : _pickImage,
+                    icon: const Icon(Icons.attach_file),
+                    onPressed: _pickImage,
                   ),
-                  const SizedBox(width: 8),
                   IconButton(
                     icon: _isSending
                         ? const SizedBox(
-                            width: 24,
-                            height: 24,
+                            width: 20,
+                            height: 20,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Icon(Icons.send, color: Colors.green),
+                        : const Icon(Icons.send),
                     onPressed: _isSending ? null : _sendMessage,
                   ),
                 ],

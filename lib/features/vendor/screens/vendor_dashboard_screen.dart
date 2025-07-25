@@ -24,6 +24,8 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
 
   int _unreadChats = 0;
   late TabController _tabController;
+  NetworkProvider? _selectedProvider;
+  double? _minDataAmount;
 
   @override
   void initState() {
@@ -62,7 +64,7 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
+        appBar: AppBar(
         title: StreamBuilder<DocumentSnapshot>(
           stream: FirebaseFirestore.instance
               .collection('users')
@@ -99,7 +101,7 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
           preferredSize: const Size.fromHeight(48),
           child: Theme(
             data: Theme.of(context).copyWith(
-              tabBarTheme: TabBarTheme(
+              tabBarTheme: TabBarThemeData(
                 indicator: BoxDecoration(
                   color: Color(0xFFFFB300),
                   borderRadius: BorderRadius.circular(24),
@@ -112,7 +114,7 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
             ),
             child: TabBar(
               controller: _tabController,
-              tabs: [
+            tabs: [
                 const Tab(icon: Icon(Icons.list_alt), text: 'My Listings'),
                 const Tab(icon: Icon(Icons.receipt_long), text: 'Transactions'),
                 Tab(
@@ -141,12 +143,12 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
               ],
             ),
           ),
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.add),
-            onPressed: _showCreateListingDialog,
           ),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.add),
+              onPressed: _showCreateListingDialog,
+            ),
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () async {
@@ -160,44 +162,125 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                 }
               }
             },
-          ),
-        ],
-      ),
-      body: TabBarView(
+            ),
+          ],
+        ),
+        body: TabBarView(
         controller: _tabController,
-        children: [
-          // My Listings Tab
-          StreamBuilder<List<BundleListing>>(
-            stream: _listingRepository.getVendorListings(_vendorId),
-            builder: (context, snapshot) {
-              if (snapshot.hasError) {
-                return Center(child: Text('Error: ${snapshot.error}'));
-              }
+          children: [
+            // My Listings Tab
+            Column(
+              children: [
+                // Filter bar
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Row(
+                    children: [
+                      // Network filter
+                      Expanded(
+                        child: DropdownButtonFormField<NetworkProvider>(
+                          value: _selectedProvider,
+                          decoration: const InputDecoration(
+                            labelText: 'Network',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          ),
+                          items: [
+                            const DropdownMenuItem<NetworkProvider>(
+                              value: null,
+                              child: Text('All Networks'),
+                            ),
+                            ...NetworkProvider.values.map((provider) => DropdownMenuItem(
+                                  value: provider,
+                                  child: Text(provider.toString().split('.').last),
+                                )),
+                          ],
+                          onChanged: (value) => setState(() => _selectedProvider = value),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      // Bundle size filter
+                      Expanded(
+                        child: DropdownButtonFormField<double>(
+                          value: _minDataAmount,
+                          decoration: const InputDecoration(
+                            labelText: 'Min Size (GB)',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          ),
+                          items: [
+                            const DropdownMenuItem<double>(
+                              value: null,
+                              child: Text('Any Size'),
+                            ),
+                            ...[0.5, 1, 2, 5, 10, 20, 50].map((size) => DropdownMenuItem(
+                                  value: size.toDouble(),
+                                  child: Text(size == size.roundToDouble() ? '${size.toInt()} GB' : '$size GB'),
+                                )),
+                          ],
+                          onChanged: (value) => setState(() => _minDataAmount = value),
+                        ),
+                      ),
+                      // Clear filters button
+                      IconButton(
+                        icon: const Icon(Icons.filter_alt_off, color: Colors.redAccent),
+                        tooltip: 'Clear Filters',
+                        onPressed: () {
+                          setState(() {
+                            _selectedProvider = null;
+                            _minDataAmount = null;
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                // Listings
+                Expanded(
+                  child: StreamBuilder<List<BundleListing>>(
+                    stream: _listingRepository.getVendorListings(_vendorId),
+                    builder: (context, snapshot) {
+                      if (snapshot.hasError) {
+                        return Center(child: Text('Error: \\${snapshot.error}'));
+                      }
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                        return const Center(child: Text('No listings yet'));
+                      }
+                      // Apply filters
+                      List<BundleListing> listings = snapshot.data!;
+                      if (_selectedProvider != null) {
+                        listings = listings.where((l) => l.provider == _selectedProvider).toList();
+                      }
+                      if (_minDataAmount != null) {
+                        listings = listings.where((l) => l.dataAmount >= _minDataAmount!).toList();
+                      }
+                      if (listings.isEmpty) {
+                        return const Center(child: Text('No listings match your filters'));
+                      }
+                      return ListView.builder(
+                        itemCount: listings.length,
+                        itemBuilder: (context, index) {
+                          final listing = listings[index];
+                          return _buildListingCard(listing);
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
 
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              }
-
-              if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                return const Center(child: Text('No listings yet'));
-              }
-
-              return ListView.builder(
-                itemCount: snapshot.data!.length,
-                itemBuilder: (context, index) {
-                  final listing = snapshot.data![index];
-                  return _buildListingCard(listing);
-                },
-              );
-            },
-          ),
-
-          // Transactions Tab
+            // Transactions Tab
           _buildVendorTransactionsTab(),
 
           // Chats Tab
           _buildVendorChatsTab(),
-        ],
+          ],
       ),
     );
   }
@@ -248,17 +331,17 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
           .where((e) => e.value == true)
           .map((e) => e.key.toUpperCase())
           .toList();
-        return Card(
+    return Card(
           elevation: 4,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
-                  children: [
+          children: [
                     GestureDetector(
                       onTap: () {
                         Navigator.push(
@@ -274,12 +357,12 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                         radius: 24,
                         child: vendorAvatarUrl == null ? Icon(Icons.storefront, color: buttonColor, size: 24) : null,
                       ),
-                    ),
+        ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
                           Row(
                             children: [
                               Flexible(
@@ -319,7 +402,7 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                     const SizedBox(width: 8),
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
+              children: [
                         Text(
                           'GHS ${listing.price.toStringAsFixed(2)}',
                           style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 18),
@@ -342,10 +425,10 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                             ),
                           ),
                         ),
-                      ],
-                    ),
-                  ],
-                ),
+              ],
+            ),
+          ],
+        ),
                 const SizedBox(height: 8),
                 Text(listing.description, style: const TextStyle(fontSize: 15)),
                 const SizedBox(height: 8),
@@ -379,25 +462,25 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                 Align(
                   alignment: Alignment.centerRight,
                   child: PopupMenuButton(
-                    itemBuilder: (context) => [
-                      const PopupMenuItem(
-                        value: 'edit',
-                        child: Text('Edit'),
-                      ),
-                      const PopupMenuItem(
-                        value: 'delete',
-                        child: Text('Delete'),
-                      ),
-                    ],
-                    onSelected: (value) {
-                      if (value == 'edit') {
-                        _showEditListingDialog(listing);
-                      } else if (value == 'delete') {
-                        _showDeleteConfirmation(listing);
-                      }
-                    },
-                  ),
-                ),
+          itemBuilder: (context) => [
+            const PopupMenuItem(
+              value: 'edit',
+              child: Text('Edit'),
+            ),
+            const PopupMenuItem(
+              value: 'delete',
+              child: Text('Delete'),
+            ),
+          ],
+          onSelected: (value) {
+            if (value == 'edit') {
+              _showEditListingDialog(listing);
+            } else if (value == 'delete') {
+              _showDeleteConfirmation(listing);
+            }
+          },
+        ),
+      ),
               ],
             ),
           ),
@@ -423,7 +506,7 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
           children: [
             Text('Transaction #${transactionId.substring(0, 8)}'),
             Text('GH₵${transaction['amount'].toStringAsFixed(2)}',
-                style: const TextStyle(fontWeight: FontWeight.bold)),
+              style: const TextStyle(fontWeight: FontWeight.bold)),
           ],
         ),
         subtitle: Column(
@@ -743,77 +826,203 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
   }
 
   Widget _buildVendorTransactionsTab() {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('transactions')
-          .where('vendorId', isEqualTo: _vendorId)
-          .orderBy('timestamp', descending: true)
-          .snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Center(child: Text('Error: ${snapshot.error}'));
-        }
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-          return const Center(child: Text('No completed transactions yet'));
-        }
-        final transactions = snapshot.data!.docs;
-        return ListView.builder(
-          itemCount: transactions.length,
-          itemBuilder: (context, index) {
-            final tx = transactions[index].data() as Map<String, dynamic>;
-            final bundleName = tx['bundleName'] ?? '';
-            final dataAmount = tx['dataAmount'] ?? '';
-            final price = tx['amount']?.toStringAsFixed(2) ?? '';
-            final recipientNumber = tx['recipientNumber'] ?? '';
-            final network = tx['provider'] ?? '';
-            final status = tx['status'] ?? '';
-            final timestamp = tx['timestamp'] != null
-                ? (tx['timestamp'] as Timestamp).toDate()
-                : null;
-            final timeString = timestamp != null
-                ? '${timestamp.year}-${timestamp.month.toString().padLeft(2, '0')}-${timestamp.day.toString().padLeft(2, '0')} ${timestamp.hour.toString().padLeft(2, '0')}:${timestamp.minute.toString().padLeft(2, '0')}'
-                : '';
-            final chatId = tx['chatId'];
-            final buyerId = tx['userId'];
-            return Card(
-              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: ListTile(
-                leading: const Icon(Icons.receipt_long),
-                title: Text('$bundleName - $dataAmount GB'),
-                subtitle: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Price: GH₵$price'),
-                    Text('Recipient: $recipientNumber'),
-                    Text('Network: $network'),
-                    Text('Status: ${status.toString().toUpperCase()}'),
-                    if (timeString.isNotEmpty) Text('Date: $timeString'),
+    return Column(
+      children: [
+        // Filter bar
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            children: [
+              // Network filter
+              Expanded(
+                child: DropdownButtonFormField<NetworkProvider>(
+                  value: _selectedProvider,
+                  decoration: const InputDecoration(
+                    labelText: 'Network',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  ),
+                  items: [
+                    const DropdownMenuItem<NetworkProvider>(
+                      value: null,
+                      child: Text('All Networks'),
+                    ),
+                    ...NetworkProvider.values.map((provider) => DropdownMenuItem(
+                          value: provider,
+                          child: Text(provider.toString().split('.').last),
+                        )),
                   ],
+                  onChanged: (value) => setState(() => _selectedProvider = value),
                 ),
-                onTap: () {
-                  if (chatId != null && buyerId != null) {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => VendorChatDetailScreen(
-                          chatId: chatId,
-                          buyerId: buyerId,
-                          buyerName:
-                              '', // You can fetch/display buyer name if needed
-                          bundleId: tx['bundleId'] ?? '',
-                        ),
-                      ),
-                    );
-                  }
+              ),
+              const SizedBox(width: 12),
+              // Bundle size filter
+              Expanded(
+                child: DropdownButtonFormField<double>(
+                  value: _minDataAmount,
+                  decoration: const InputDecoration(
+                    labelText: 'Min Size (GB)',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  ),
+                  items: [
+                    const DropdownMenuItem<double>(
+                      value: null,
+                      child: Text('Any Size'),
+                    ),
+                    ...[0.5, 1, 2, 5, 10, 20, 50].map((size) => DropdownMenuItem(
+                          value: size.toDouble(),
+                          child: Text(size == size.roundToDouble() ? '${size.toInt()} GB' : '$size GB'),
+                        )),
+                  ],
+                  onChanged: (value) => setState(() => _minDataAmount = value),
+                ),
+              ),
+              // Clear filters button
+              IconButton(
+                icon: const Icon(Icons.filter_alt_off, color: Colors.redAccent),
+                tooltip: 'Clear Filters',
+                onPressed: () {
+                  setState(() {
+                    _selectedProvider = null;
+                    _minDataAmount = null;
+                  });
                 },
               ),
-            );
-          },
-        );
-      },
+            ],
+          ),
+        ),
+        // Transactions list
+        Expanded(
+          child: StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('transactions')
+                .where('vendorId', isEqualTo: _vendorId)
+                .orderBy('timestamp', descending: true)
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return Center(child: Text('Error: \\${snapshot.error}'));
+              }
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                return const Center(child: Text('No completed transactions yet'));
+              }
+              final transactions = snapshot.data!.docs;
+              // Apply filters
+              final filtered = transactions.where((doc) {
+                final tx = doc.data() as Map<String, dynamic>;
+                final provider = tx['provider'] != null
+                  ? NetworkProvider.values.firstWhere(
+                      (e) => e.toString().split('.').last.toLowerCase() == tx['provider'].toString().toLowerCase(),
+                      orElse: () => NetworkProvider.MTN)
+                  : null;
+                final dataAmount = (tx['dataAmount'] ?? 0).toDouble();
+                final providerMatch = _selectedProvider == null || provider == _selectedProvider;
+                final sizeMatch = _minDataAmount == null || dataAmount >= _minDataAmount!;
+                return providerMatch && sizeMatch;
+              }).toList();
+              if (filtered.isEmpty) {
+                return const Center(child: Text('No transactions match your filters'));
+              }
+              return ListView.builder(
+                itemCount: filtered.length,
+                itemBuilder: (context, index) {
+                  final doc = filtered[index];
+                  final tx = doc.data() as Map<String, dynamic>;
+                  final timestamp = tx['timestamp'] != null ? (tx['timestamp'] as Timestamp).toDate() : null;
+                  final formattedDate = timestamp != null
+                      ? '${timestamp.day.toString().padLeft(2, '0')} '
+                        '${_monthName(timestamp.month)} ${timestamp.year}, '
+                        '${_formatTime(timestamp)}'
+                      : '';
+                  final isVerified = true; // Vendors are always verified here
+                  return Card(
+                    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    elevation: 3,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.storefront, size: 20, color: Colors.orange),
+                              const SizedBox(width: 6),
+                              Text(
+                                tx['buyerName'] ?? '',
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                              ),
+                              if (isVerified) ...[
+                                const SizedBox(width: 4),
+                                Icon(Icons.verified, color: Colors.blue, size: 18),
+                              ],
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              const Icon(Icons.monetization_on, size: 18, color: Colors.teal),
+                              const SizedBox(width: 4),
+                              Text('GHS ${tx['amount']?.toStringAsFixed(2) ?? ''}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                              const SizedBox(width: 16),
+                              if (tx['dataAmount'] != null && tx['dataAmount'].toString().isNotEmpty) ...[
+                                const Icon(Icons.swap_vert, size: 18, color: Colors.deepPurple),
+                                const SizedBox(width: 4),
+                                Text('${tx['dataAmount']} GB', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                                const SizedBox(width: 16),
+                              ],
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              const Icon(Icons.phone_android, size: 18, color: Colors.blueGrey),
+                              const SizedBox(width: 4),
+                              Text('Recipient: ${tx['recipientNumber'] ?? ''}', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              const Icon(Icons.calendar_today, size: 16, color: Colors.deepPurple),
+                              const SizedBox(width: 4),
+                              Text(
+                                formattedDate,
+                                style: const TextStyle(fontSize: 13, color: Colors.black87, fontWeight: FontWeight.w500),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
     );
+  }
+
+  String _monthName(int month) {
+    const months = [
+      '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+    return months[month];
+  }
+
+  String _formatTime(DateTime dt) {
+    final hour = dt.hour > 12 ? dt.hour - 12 : dt.hour == 0 ? 12 : dt.hour;
+    final ampm = dt.hour >= 12 ? 'PM' : 'AM';
+    final min = dt.minute.toString().padLeft(2, '0');
+    return '$hour:$min $ampm';
   }
 }

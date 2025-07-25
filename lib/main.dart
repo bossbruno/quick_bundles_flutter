@@ -11,6 +11,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'core/firebase/firebase_init.dart';
 import 'features/auth/screens/login_screen.dart';
+import 'services/onesignal_service.dart';
 
 import 'AIRTELTIGOpage/at_tab.dart';
 import 'Ads_directory/ad_mob_service.dart';
@@ -25,6 +26,9 @@ void main() async {
     ),
     MobileAds.instance.initialize(),
   ]);
+  
+  // Initialize OneSignal
+  await OneSignalService.initialize();
   
     runApp(const MyApp());
 }
@@ -57,7 +61,7 @@ class MyApp extends StatelessWidget {
             fontSize: 20,
           ),
         ),
-        cardTheme: CardTheme(
+        cardTheme: CardThemeData(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           elevation: 4,
           margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -173,6 +177,7 @@ class _HomePage extends State<HomePage> {
       appBar: AppBar(
         title: const Text('Login'),
         centerTitle: true,
+        // The default backgroundColor will use the theme's yellow
       ),
       body: Column(
         children: [
