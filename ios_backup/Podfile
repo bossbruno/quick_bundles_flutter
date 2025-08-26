@@ -1,0 +1,114 @@
+# Uncomment this line to define a global platform for your project
+platform :ios, '15.0'
+
+# CocoaPods analytics sends network stats synchronously affecting flutter build latency.
+ENV['COCOAPODS_DISABLE_STATS'] = 'true'
+
+project 'Runner', {
+  'Debug' => :debug,
+  'Profile' => :release,
+  'Release' => :release,
+}
+
+def flutter_root
+  generated_xcode_build_settings_path = File.expand_path(File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__)
+  unless File.exist?(generated_xcode_build_settings_path)
+    raise "#{generated_xcode_build_settings_path} must exist. If you're running pod install manually, make sure flutter pub get is executed first"
+  end
+
+  File.foreach(generated_xcode_build_settings_path) do |line|
+    matches = line.match(/FLUTTER_ROOT\=(.*)/)
+    return matches[1].strip if matches
+  end
+  raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}. Try deleting Generated.xcconfig, then run flutter pub get"
+end
+
+require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
+
+flutter_ios_podfile_setup
+
+target 'Runner' do
+  use_frameworks!
+  use_modular_headers!
+
+  flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+  target 'RunnerTests' do
+    inherit! :search_paths
+  end
+end
+
+post_install do |installer|
+  installer.pods_project.targets.each do |target|
+    if target.name == 'BoringSSL-GRPC'
+      target.source_build_phase.files.each do |file|
+        next unless file.settings && file.settings['COMPILER_FLAGS'].is_a?(String)
+        flags = file.settings['COMPILER_FLAGS'].split
+        flags.reject! { |flag| flag == '-GCC_WARN_INHIBIT_ALL_WARNINGS' }
+        file.settings['COMPILER_FLAGS'] = flags.join(' ')
+      end
+    end
+  end
+
+  # Patch flutter_phone_direct_caller umbrella header
+  umbrella = File.join(__dir__, 'Pods', 'Target Support Files', 'flutter_phone_direct_caller', 'flutter_phone_direct_caller-umbrella.h')
+  if File.exist?(umbrella)
+    text = File.read(umbrella)
+    if text.include?('#import "FlutterPhoneDirectCallerPlugin.h"')
+      text = text.gsub('#import "FlutterPhoneDirectCallerPlugin.h"', '#import <flutter_phone_direct_caller/FlutterPhoneDirectCallerPlugin.h>')
+      File.open(umbrella, 'w') { |f| f.write(text) }
+      puts "Patched flutter_phone_direct_caller-umbrella.h to use angle brackets"
+    end
+  end
+
+  # Fix Flutter podspec vendored_frameworks path
+  flutter_podspec = File.join(__dir__, 'Flutter', 'Flutter.podspec')
+  if File.exist?(flutter_podspec)
+    text = File.read(flutter_podspec)
+    if text.include?("s.vendored_frameworks = 'path/to/nothing'")
+      flutter_root = '/Users/awurade/development/flutter'
+      correct_path = File.join(flutter_root, 'bin', 'cache', 'artifacts', 'engine', 'ios', 'Flutter.xcframework')
+      text = text.gsub("s.vendored_frameworks = 'path/to/nothing'", "s.vendored_frameworks = '#{correct_path}'")
+      File.open(flutter_podspec, 'w') { |f| f.write(text) }
+      puts "Fixed Flutter.podspec vendored_frameworks path"
+    end
+  end
+
+  # Create symlink to Flutter framework in Pods directory
+  flutter_framework_path = '/Users/awurade/development/flutter/bin/cache/artifacts/engine/ios/Flutter.xcframework'
+  pods_flutter_dir = File.join(__dir__, 'Pods', 'Flutter')
+  
+  unless Dir.exist?(pods_flutter_dir)
+    Dir.mkdir(pods_flutter_dir)
+  end
+  
+  # Create symlink to the framework
+  framework_symlink = File.join(pods_flutter_dir, 'Flutter.xcframework')
+  unless File.symlink?(framework_symlink)
+    File.symlink(flutter_framework_path, framework_symlink)
+    puts "Created symlink to Flutter.xcframework in Pods/Flutter/"
+  end
+  
+  # Add Flutter framework search paths to all targets
+  installer.pods_project.targets.each do |target|
+    target.build_configurations.each do |config|
+      config.build_settings['FRAMEWORK_SEARCH_PATHS'] ||= ['$(inherited)']
+      config.build_settings['FRAMEWORK_SEARCH_PATHS'] << '$(PODS_ROOT)/Flutter'
+      config.build_settings['FRAMEWORK_SEARCH_PATHS'] << flutter_framework_path
+      
+      config.build_settings['HEADER_SEARCH_PATHS'] ||= ['$(inherited)']
+      config.build_settings['HEADER_SEARCH_PATHS'] << '$(PODS_ROOT)/Flutter/Flutter.xcframework/ios-arm64_x86_64-simulator/Flutter.framework/Headers'
+      config.build_settings['HEADER_SEARCH_PATHS'] << '$(PODS_ROOT)/Flutter/Flutter.xcframework/ios-arm64/Flutter.framework/Headers'
+      config.build_settings['HEADER_SEARCH_PATHS'] << File.join(flutter_framework_path, 'ios-arm64_x86_64-simulator/Flutter.framework/Headers')
+      config.build_settings['HEADER_SEARCH_PATHS'] << File.join(flutter_framework_path, 'ios-arm64/Flutter.framework/Headers')
+      
+      # Add module search paths
+      config.build_settings['SWIFT_INCLUDE_PATHS'] ||= ['$(inherited)']
+      config.build_settings['SWIFT_INCLUDE_PATHS'] << '$(PODS_ROOT)/Flutter/Flutter.xcframework/ios-arm64_x86_64-simulator/Flutter.framework/Modules'
+      config.build_settings['SWIFT_INCLUDE_PATHS'] << '$(PODS_ROOT)/Flutter/Flutter.xcframework/ios-arm64/Flutter.framework/Modules'
+      
+      # Ensure Flutter is linked as a framework
+      config.build_settings['OTHER_LDFLAGS'] ||= ['$(inherited)']
+      config.build_settings['OTHER_LDFLAGS'] << '-framework Flutter'
+    end
+  end
+end
