@@ -1,36 +1,56 @@
+import 'dart:async';
 import 'package:buttons_tabbar/buttons_tabbar.dart';
 import 'package:flutter/material.dart';
 import 'package:quick_bundles_flutter/MTNpage/mtntab.dart';
 import 'package:quick_bundles_flutter/VODAFONEpage/telecel_tab.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:quick_bundles_flutter/VODAFONEpage/VodafoneSplashPage.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'screens/auth_wrapper.dart';
 import 'firebase_options.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import 'core/firebase/firebase_init.dart';
 import 'features/auth/screens/login_screen.dart';
 import 'services/onesignal_service.dart';
+import 'services/fcm_v1_service.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 
 import 'AIRTELTIGOpage/at_tab.dart';
 import 'Ads_directory/ad_mob_service.dart';
+import 'services/shared_preference_service.dart';
+
+final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // Run initializations in parallel
-  await Future.wait([
-    Firebase.initializeApp(
+
+  // Initialize Firebase
+  await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
-    ),
-    MobileAds.instance.initialize(),
-  ]);
+  );
   
-  // Initialize OneSignal
-  await OneSignalService.initialize();
+  // Initialize Shared Preferences
+  final sharedPrefs = BambooSharedPreference();
+  await sharedPrefs.init();
   
-    runApp(const MyApp());
+  // Initialize the app
+  runApp(const MyApp());
+
+  // Fire-and-forget ancillary initializations to avoid startup jank
+  unawaited(MobileAds.instance.initialize());
+  unawaited(OneSignalService.initialize());
+  unawaited(FCMV1Service().initialize());
+
+  const AndroidInitializationSettings initializationSettingsAndroid = AndroidInitializationSettings('@mipmap/ic_launcher');
+  final DarwinInitializationSettings initializationSettingsIOS = DarwinInitializationSettings();
+  final InitializationSettings initializationSettings = InitializationSettings(
+    android: initializationSettingsAndroid,
+    iOS: initializationSettingsIOS,
+  );
+  unawaited(flutterLocalNotificationsPlugin.initialize(initializationSettings));
 }
 
 class MyApp extends StatelessWidget {
@@ -147,7 +167,6 @@ class _HomePage extends State<HomePage> {
                   unselectedBackgroundColor: Colors.white,
                   labelStyle: const TextStyle(
                       color: Colors.white,
-                      fontFamily: 'assets/Poppins-ExtraBold.tff',
                 fontWeight: FontWeight.bold
               ),
                   unselectedBorderColor: Colors.blue,
@@ -173,15 +192,17 @@ class _HomePage extends State<HomePage> {
   }
 
   Widget _buildLoginPage() {
+    final user = FirebaseAuth.instance.currentUser;
     return Scaffold(
-      appBar: AppBar(
+      appBar: user == null
+          ? AppBar(
         title: const Text('Login'),
         centerTitle: true,
-        // The default backgroundColor will use the theme's yellow
-      ),
-      body: Column(
+            )
+          : null,
+      body: const Column(
         children: [
-          const Expanded(child: AuthWrapper()),
+          Expanded(child: AuthWrapper()),
         ],
       ),
     );

@@ -1,7 +1,7 @@
 # Uncomment this line to define a global platform for your project
 platform :ios, '15.0'
-
-use_modular_headers!
+# pod 'gRPC-Core', '1.56.0'
+# pod 'BoringSSL-GRPC', '0.0.29'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
@@ -30,10 +30,10 @@ require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelpe
 flutter_ios_podfile_setup
 
 target 'Runner' do
+  use_frameworks! :linkage => :static
   use_modular_headers!
 
-  flutter_install_all_ios_pods(File.dirname(File.realpath(__FILE__)))
-
+  flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
   target 'RunnerTests' do
     inherit! :search_paths
   end
@@ -42,19 +42,19 @@ end
 post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
-
+    # Set deployment target for all targets
     target.build_configurations.each do |config|
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
-      config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++17'
-      config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
-      config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
+      # Force C++17 standard for all pods
+        config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++17'
+        config.build_settings['CLANG_CXX_LIBRARY'] = 'libc++'
+      # Add Flutter framework and header search paths
       config.build_settings['FRAMEWORK_SEARCH_PATHS'] ||= ['$(inherited)']
       config.build_settings['FRAMEWORK_SEARCH_PATHS'] << '$(PODS_ROOT)/Flutter'
       config.build_settings['HEADER_SEARCH_PATHS'] ||= ['$(inherited)']
       config.build_settings['HEADER_SEARCH_PATHS'] << '$(PODS_ROOT)/Flutter/Flutter.xcframework/ios-arm64_x86_64-simulator/Flutter.framework/Headers'
       config.build_settings['HEADER_SEARCH_PATHS'] << '$(PODS_ROOT)/Flutter/Flutter.xcframework/ios-arm64/Flutter.framework/Headers'
-
-      # Remove unsupported '-G' flag for BoringSSL-GRPC if needed
+      # Remove unsupported '-G' flag for BoringSSL-GRPC
       if target.name == 'BoringSSL-GRPC'
         flags = config.build_settings['OTHER_CFLAGS']
         if flags.is_a?(Array)
@@ -65,7 +65,7 @@ post_install do |installer|
       end
     end
   end
-
+  
   # Ensure Flutter.xcframework symlink exists in Pods/Flutter
   flutter_framework_path = File.expand_path(File.join('..', 'Flutter', 'Flutter.xcframework'), __dir__)
   pods_flutter_dir = File.join(__dir__, 'Pods', 'Flutter')

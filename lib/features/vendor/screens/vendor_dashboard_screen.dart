@@ -7,7 +7,7 @@ import '../widgets/listing_form_dialog.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../chat/screens/vendor_chat_detail_screen.dart';
 import 'package:google_fonts/google_fonts.dart';
-import '../../vendor/screens/vendor_profile_screen.dart';
+import 'updated_vendor_profile_screen.dart';
 
 class VendorDashboardScreen extends StatefulWidget {
   const VendorDashboardScreen({Key? key}) : super(key: key);
@@ -18,20 +18,125 @@ class VendorDashboardScreen extends StatefulWidget {
 
 class _VendorDashboardScreenState extends State<VendorDashboardScreen>
     with SingleTickerProviderStateMixin {
-  final ListingRepository _listingRepository = ListingRepository();
-  final DatabaseService _dbService = DatabaseService();
-  String get _vendorId => FirebaseAuth.instance.currentUser?.uid ?? '';
+  // --- Multi-select chat state for vendor ---
+  bool _vendorChatSelectionMode = false;
+  Set<String> _selectedVendorChatIds = {};
 
-  int _unreadChats = 0;
-  late TabController _tabController;
+  // --- Transactions tab filter state ---
   NetworkProvider? _selectedProvider;
   double? _minDataAmount;
+
+  // --- Vendor ID ---
+  String get _vendorId => FirebaseAuth.instance.currentUser?.uid ?? '';
+
+  final ListingRepository _listingRepository = ListingRepository();
+  final DatabaseService _dbService = DatabaseService();
+  int _unreadChats = 0;
+  late TabController _tabController;
+
+  void _toggleVendorChatSelectionMode([bool? value]) {
+    setState(() {
+      _vendorChatSelectionMode = value ?? !_vendorChatSelectionMode;
+      if (!_vendorChatSelectionMode) _selectedVendorChatIds.clear();
+    });
+  }
+
+  void _toggleVendorChatSelection(String chatId) {
+    setState(() {
+      if (_selectedVendorChatIds.contains(chatId)) {
+        _selectedVendorChatIds.remove(chatId);
+      } else {
+        _selectedVendorChatIds.add(chatId);
+      }
+    });
+  }
+
+  Future<void> _deleteSelectedVendorChats() async {
+    if (_selectedVendorChatIds.isEmpty) return;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Chats'),
+        content: Text(
+          'Are you sure you want to delete ${_selectedVendorChatIds.length} selected chat(s)? This will also delete all messages inside.',
+          style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+            style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.primary),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirm == true) {
+      try {
+        WriteBatch batch = FirebaseFirestore.instance.batch();
+        for (final chatId in _selectedVendorChatIds) {
+          final chatRef = FirebaseFirestore.instance.collection('chats').doc(chatId);
+          final msgSnap = await chatRef.collection('messages').get();
+          for (var msg in msgSnap.docs) {
+            batch.delete(msg.reference);
+          }
+          batch.delete(chatRef);
+        }
+        await batch.commit();
+        setState(() {
+          _selectedVendorChatIds.clear();
+          _vendorChatSelectionMode = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Deleted selected chat(s).')),
+        );
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to delete chats: $e'), backgroundColor: Theme.of(context).colorScheme.error),
+        );
+      }
+    }
+  }
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
     _listenUnreadCounts();
+    _updateExistingChatsWithBuyerName();
+  }
+
+  Future<void> _updateExistingChatsWithBuyerName() async {
+    try {
+      final chats = await FirebaseFirestore.instance
+          .collection('chats')
+          .where('vendorId', isEqualTo: _vendorId)
+          .get();
+      
+      for (var chatDoc in chats.docs) {
+        final data = chatDoc.data() as Map<String, dynamic>;
+        if (data['buyerName'] == null || data['buyerName'] == '') {
+          final buyerId = data['buyerId'];
+          if (buyerId != null) {
+            final userDoc = await FirebaseFirestore.instance.collection('users').doc(buyerId).get();
+            if (userDoc.exists) {
+              final userData = userDoc.data() as Map<String, dynamic>?;
+              final buyerName = userData?['name'] ?? userData?['businessName'] ?? 'Buyer';
+              await chatDoc.reference.update({'buyerName': buyerName});
+            }
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error updating existing chats: $e');
+    }
   }
 
   void _listenUnreadCounts() {
@@ -114,62 +219,155 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
             ),
             child: TabBar(
               controller: _tabController,
-            tabs: [
-                const Tab(icon: Icon(Icons.list_alt), text: 'My Listings'),
-                const Tab(icon: Icon(Icons.receipt_long), text: 'Transactions'),
-                Tab(
-                  icon: Stack(
-                    children: [
-                      const Icon(Icons.chat_bubble_outline),
-                      if (_unreadChats > 0)
-                        Positioned(
-                          right: 0,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              isScrollable: false,
+              indicatorWeight: 3.0,
+              indicatorSize: TabBarIndicatorSize.tab,
+              labelPadding: EdgeInsets.zero,
+              tabs: [
+                Expanded(
+                  child: Tab(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.storefront, size: 18),
+                        const SizedBox(width: 4),
+                        Flexible(
+                          child: Text(
+                            'Listings',
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                          ),
+                        ),
+                        if (_unreadChats > 0) ...[
+                          const SizedBox(width: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                             decoration: BoxDecoration(
                               color: Colors.red,
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            constraints: const BoxConstraints(
+                              minWidth: 16,
+                              minHeight: 16,
                             ),
                             child: Text(
                               _unreadChats.toString(),
-                              style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                height: 1.2,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              textAlign: TextAlign.center,
                             ),
                           ),
-                        ),
-                    ],
+                        ],
+                      ],
+                    ),
                   ),
-                  text: 'Chats',
+                ),
+                Expanded(
+                  child: const Tab(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.chat_bubble_outline, size: 18),
+                        SizedBox(width: 4),
+                        Text(
+                          'Chats',
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: const Tab(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.receipt_long, size: 18),
+                        SizedBox(width: 4),
+                        Text(
+                          'Transactions',
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ],
             ),
           ),
           ),
           actions: [
-            IconButton(
-              icon: const Icon(Icons.add),
-              onPressed: _showCreateListingDialog,
-            ),
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () async {
-              try {
-                await FirebaseAuth.instance.signOut();
-              } catch (e) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Error signing out: $e')),
+            if (_vendorChatSelectionMode)
+              IconButton(
+                icon: const Icon(Icons.delete, color: Colors.red),
+                onPressed: _selectedVendorChatIds.isEmpty ? null : _deleteSelectedVendorChats,
+                tooltip: 'Delete Selected',
+              ),
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert),
+              onSelected: (value) {
+                if (value == 'profile') {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => UpdatedVendorProfileScreen(vendorId: _vendorId),
+                    ),
                   );
+                } else if (value == 'logout') {
+                  FirebaseAuth.instance.signOut();
+                  // Add any additional logout logic here
                 }
-              }
-            },
+              },
+              itemBuilder: (BuildContext context) => [
+                const PopupMenuItem<String>(
+                  value: 'profile',
+                  child: Row(
+                    children: [
+                      Icon(Icons.person, size: 20),
+                      SizedBox(width: 8),
+                      Text('Vendor Profile'),
+                    ],
+                  ),
+                ),
+                const PopupMenuDivider(),
+                PopupMenuItem<String>(
+                  value: 'logout',
+                  child: Row(
+                    children: [
+                      Icon(Icons.logout, size: 20, color: Colors.red),
+                      const SizedBox(width: 8),
+                      Text('Logout', style: TextStyle(color: Colors.red)),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ],
         ),
         body: TabBarView(
         controller: _tabController,
           children: [
-            // My Listings Tab
-            Column(
+          _buildListingsTab(),
+          _buildChatsTab(),
+          _buildVendorTransactionsTab(),
+        ],
+      ),
+      floatingActionButton: _tabController.index == 0
+          ? FloatingActionButton(
+              onPressed: () => _showAddListingDialog(),
+              backgroundColor: const Color(0xFFFFB300),
+              child: const Icon(Icons.add, color: Colors.white),
+            )
+          : null,
+    );
+  }
+
+  Widget _buildListingsTab() {
+    return Column(
               children: [
                 // Filter bar
                 Padding(
@@ -237,70 +435,47 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                     ],
                   ),
                 ),
-                // Listings
+        // Listings list
                 Expanded(
                   child: StreamBuilder<List<BundleListing>>(
                     stream: _listingRepository.getVendorListings(_vendorId),
                     builder: (context, snapshot) {
                       if (snapshot.hasError) {
-                        return Center(child: Text('Error: \\${snapshot.error}'));
+                return Center(child: Text('Error: ${snapshot.error}'));
                       }
                       if (snapshot.connectionState == ConnectionState.waiting) {
                         return const Center(child: CircularProgressIndicator());
                       }
                       if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                        return const Center(child: Text('No listings yet'));
+                return const Center(child: Text('No listings found'));
                       }
+              var listings = snapshot.data!;
+              
                       // Apply filters
-                      List<BundleListing> listings = snapshot.data!;
                       if (_selectedProvider != null) {
                         listings = listings.where((l) => l.provider == _selectedProvider).toList();
                       }
                       if (_minDataAmount != null) {
                         listings = listings.where((l) => l.dataAmount >= _minDataAmount!).toList();
                       }
-                      if (listings.isEmpty) {
-                        return const Center(child: Text('No listings match your filters'));
-                      }
+              
                       return ListView.builder(
                         itemCount: listings.length,
                         itemBuilder: (context, index) {
                           final listing = listings[index];
-                          return _buildListingCard(listing);
-                        },
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-
-            // Transactions Tab
-          _buildVendorTransactionsTab(),
-
-          // Chats Tab
-          _buildVendorChatsTab(),
-          ],
-      ),
-    );
-  }
-
-  Widget _buildListingCard(BundleListing listing) {
     return FutureBuilder<DocumentSnapshot>(
-      future: FirebaseFirestore.instance
-          .collection('users')
-          .doc(listing.vendorId)
-          .get(),
-      builder: (context, snapshot) {
+                    future: FirebaseFirestore.instance.collection('users').doc(listing.vendorId).get(),
+                    builder: (context, userSnap) {
         String businessName = '';
         String? vendorAvatarUrl;
         bool isVerified = false;
-        if (snapshot.hasData && snapshot.data!.exists) {
-          final data = snapshot.data!.data() as Map<String, dynamic>?;
+                      if (userSnap.hasData && userSnap.data!.exists) {
+                        final data = userSnap.data!.data() as Map<String, dynamic>?;
           businessName = data?['businessName'] ?? '';
           vendorAvatarUrl = data?['avatarUrl'];
           isVerified = data?['verificationStatus'] ?? data?['isVerified'] ?? false;
         }
+                      
         // Color coding for provider (for button)
         Color buttonColor;
         String networkLabel;
@@ -326,11 +501,13 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
             networkLabel = 'Unknown';
             networkIcon = Icons.wifi;
         }
+                      
         // Payment methods
         final paymentMethods = listing.paymentMethods.entries
           .where((e) => e.value == true)
           .map((e) => e.key.toUpperCase())
           .toList();
+
     return Card(
           elevation: 4,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -341,13 +518,14 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
           children: [
                     GestureDetector(
                       onTap: () {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (context) => VendorProfileScreen(vendorId: listing.vendorId),
+                            builder: (context) => UpdatedVendorProfileScreen(vendorId: listing.vendorId),
                           ),
                         );
                       },
@@ -371,12 +549,12 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                                     Navigator.push(
                                       context,
                                       MaterialPageRoute(
-                                        builder: (context) => VendorProfileScreen(vendorId: listing.vendorId),
+                                        builder: (context) => UpdatedVendorProfileScreen(vendorId: listing.vendorId),
                                       ),
                                     );
                                   },
                                   child: Text(
-                                    businessName,
+                                                  businessName.isNotEmpty ? businessName : 'My Business',
                                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                                     overflow: TextOverflow.ellipsis,
                                     maxLines: 1,
@@ -385,7 +563,7 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                               ),
                               if (isVerified) ...[
                                 const SizedBox(width: 4),
-                                const Icon(Icons.verified, color: Colors.green, size: 16),
+                                              const Icon(Icons.verified, color: Colors.blue, size: 16),
                               ],
                             ],
                           ),
@@ -399,17 +577,14 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                         ],
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    Column(
+                    Align(
+                      alignment: Alignment.topRight,
+                      child: SizedBox(
+                        width: 90,
+                        child: Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
+                          mainAxisSize: MainAxisSize.min,
               children: [
-                        Text(
-                          'GHS ${listing.price.toStringAsFixed(2)}',
-                          style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 18),
-                          overflow: TextOverflow.ellipsis,
-                          maxLines: 1,
-                        ),
-                        const SizedBox(height: 6),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                           decoration: BoxDecoration(
@@ -420,17 +595,28 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                             '${listing.dataAmount}GB',
                             style: GoogleFonts.poppins(
                               fontWeight: FontWeight.bold,
-                              fontSize: 18,
+                                fontSize: 16,
                               color: buttonColor,
                             ),
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1,
+                            ),
                           ),
-                        ),
-              ],
-            ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'GHS ${listing.price.toStringAsFixed(2)}',
+                            style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 14),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
+                        ],
+                      ),
+                    ),
+                    )
           ],
         ),
                 const SizedBox(height: 8),
-                Text(listing.description, style: const TextStyle(fontSize: 15)),
+                Text(listing.description, style: const TextStyle(fontSize: 15), overflow: TextOverflow.ellipsis, maxLines: 2),
                 const SizedBox(height: 8),
                 Row(
                   children: [
@@ -465,355 +651,226 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
           itemBuilder: (context) => [
             const PopupMenuItem(
               value: 'edit',
-              child: Text('Edit'),
+                                      child: Row(
+                                        children: [
+                                          Icon(Icons.edit, color: Colors.blue),
+                                          SizedBox(width: 8),
+                                          Text('Edit'),
+                                        ],
+                                      ),
             ),
             const PopupMenuItem(
               value: 'delete',
-              child: Text('Delete'),
-            ),
+                                      child: Row(
+                                        children: [
+                                          Icon(Icons.delete, color: Colors.red),
+                                          SizedBox(width: 8),
+                                          Text('Delete'),
           ],
-          onSelected: (value) {
-            if (value == 'edit') {
-              _showEditListingDialog(listing);
-            } else if (value == 'delete') {
-              _showDeleteConfirmation(listing);
-            }
-          },
         ),
       ),
               ],
-            ),
+                                  onSelected: (value) => _handleListingAction(value, listing),
+                                ),
           ),
-        );
-      },
-    );
-  }
-
-  Widget _buildTransactionCard(
-      Map<String, dynamic> transaction, String transactionId) {
-    final statusColor = {
-      'pending': Colors.orange,
-      'processing': Colors.blue,
-      'completed': Colors.green,
-      'failed': Colors.red,
-    }[transaction['status']];
-
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: ListTile(
-        title: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text('Transaction #${transactionId.substring(0, 8)}'),
-            Text('GH₵${transaction['amount'].toStringAsFixed(2)}',
-              style: const TextStyle(fontWeight: FontWeight.bold)),
-          ],
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 8),
-            Text('Bundle: ${transaction['bundleName']}'),
-            Text('Recipient: ${transaction['recipientNumber']}'),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  transaction['status'].toUpperCase(),
-                  style: TextStyle(
-                    color: statusColor,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                Text(
-                    'Created: ${_formatDate(transaction['timestamp'].toDate())}'),
-              ],
-            ),
-          ],
-        ),
-        onTap: () => _showTransactionDetails(transaction, transactionId),
+        ],
       ),
-    );
-  }
-
-  String _formatDate(DateTime date) {
-    return '${date.day}/${date.month}/${date.year}';
-  }
-
-  void _showCreateListingDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => ListingFormDialog(
-        onSubmit: (data) async {
-          try {
-            await _listingRepository.createListing(
-              BundleListing(
-                id: '', // Will be set by Firestore
-                vendorId: _vendorId,
-                provider: NetworkProvider.values.firstWhere(
-                  (e) => e.toString() == 'NetworkProvider.${data['provider']}',
-                ),
-                dataAmount: data['dataAmount'],
-                price: data['price'],
-                description: data['description'],
-                estimatedDeliveryTime: data['estimatedDeliveryTime'],
-                availableStock: data['availableStock'],
-                status: ListingStatus.ACTIVE,
-                createdAt: DateTime.now(),
-                updatedAt: DateTime.now(),
-                paymentMethods: data['paymentMethods'],
-                minOrder: data['minOrder'],
-                maxOrder: data['maxOrder'],
-              ),
-            );
-
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Listing created successfully')),
-              );
-            }
-          } catch (e) {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Failed to create listing: $e')),
-              );
-            }
-          }
-        },
-      ),
-    );
-  }
-
-  void _showEditListingDialog(BundleListing listing) {
-    showDialog(
-      context: context,
-      builder: (context) => ListingFormDialog(
-        listing: listing,
-        onSubmit: (data) async {
-          try {
-            await _listingRepository.updateListing(listing.id, {
-              ...data,
-              'updatedAt': DateTime.now(),
-            });
-
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Listing updated successfully')),
-              );
-            }
-          } catch (e) {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Failed to update listing: $e')),
-              );
-            }
-          }
-        },
-      ),
-    );
-  }
-
-  void _showDeleteConfirmation(BundleListing listing) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete Listing'),
-        content: const Text('Are you sure you want to delete this listing?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () async {
-              try {
-                await _listingRepository.deleteListing(listing.id);
-                if (mounted) {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                        content: Text('Listing deleted successfully')),
-                  );
-                }
-              } catch (e) {
-                if (mounted) {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Failed to delete listing: $e')),
-                  );
-                }
-              }
+                        ),
+                    );
+                    },
+                    );
+                },
+                    );
             },
-            child: const Text('Delete'),
           ),
+            ),
         ],
-      ),
     );
   }
 
-  void _showTransactionDetails(
-      Map<String, dynamic> transaction, String transactionId) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Transaction #${transactionId.substring(0, 8)}'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Bundle: ${transaction['bundleName']}'),
-            Text('Amount: ${transaction['dataAmount']}GB'),
-            Text('Price: GH₵${transaction['amount'].toStringAsFixed(2)}'),
-            Text('Recipient: ${transaction['recipientNumber']}'),
-            Text('Status: ${transaction['status'].toUpperCase()}'),
-            Text('Created: ${_formatDate(transaction['timestamp'].toDate())}'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-          if (transaction['status'] == 'pending')
-            TextButton(
-              onPressed: () async {
-                try {
-                  await _dbService.updateTransactionStatus(
-                    transactionId,
-                    'processing',
-                  );
-                  if (mounted) {
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                          content: Text('Transaction marked as processing')),
-                    );
-                  }
-                } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                          content: Text('Failed to update transaction: $e')),
-                    );
-                  }
-                }
-              },
-              child: const Text('Mark as Processing'),
-            ),
-          if (transaction['status'] == 'processing')
-            TextButton(
-              onPressed: () async {
-                try {
-                  await _dbService.updateTransactionStatus(
-                    transactionId,
-                    'completed',
-                  );
-                  if (mounted) {
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                          content: Text('Transaction marked as completed')),
-                    );
-                  }
-                } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                          content: Text('Failed to update transaction: $e')),
-                    );
-                  }
-                }
-              },
-              child: const Text('Mark as Completed'),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildVendorChatsTab() {
+  Widget _buildChatsTab() {
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('chats')
-          .where('vendorId', isEqualTo: _vendorId)
-          .where('status', isNotEqualTo: 'completed')
-          .orderBy('updatedAt', descending: true)
-          .snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
+            stream: FirebaseFirestore.instance
+                .collection('chats')
+                .where('vendorId', isEqualTo: _vendorId)
+                .where('status', isNotEqualTo: 'completed')
+                .orderBy('updatedAt', descending: true)
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
           return Center(child: Text('Error: ${snapshot.error}'));
-        }
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-          return const Center(child: Text('No chats yet'));
-        }
-        final chats = snapshot.data!.docs;
-        return ListView.builder(
-          itemCount: chats.length,
-          itemBuilder: (context, index) {
-            final chat = chats[index];
-            final data = chat.data() as Map<String, dynamic>;
-            final buyerId = data['buyerId'] ?? '';
-            final bundleId = data['bundleId'] ?? '';
-            final status = data['status'] ?? 'pending';
-            final chatId = chat.id;
-            return FutureBuilder<DocumentSnapshot>(
-              future: FirebaseFirestore.instance
-                  .collection('users')
-                  .doc(buyerId)
-                  .get(),
-              builder: (context, userSnap) {
-                String buyerName = 'Buyer';
-                if (userSnap.hasData && userSnap.data!.exists) {
-                  final userData =
-                      userSnap.data!.data() as Map<String, dynamic>?;
-                  buyerName = userData?['name'] ?? 'Buyer';
-                }
-                return StreamBuilder<QuerySnapshot>(
-                  stream: chat.reference
-                      .collection('messages')
-                      .where('isRead', isEqualTo: false)
-                      .where('senderId', isEqualTo: buyerId)
-                      .snapshots(),
-                  builder: (context, msgSnap) {
-                    final unread = msgSnap.data?.docs.length ?? 0;
-                    return ListTile(
-                      leading: const Icon(Icons.chat_bubble_outline),
-                      title: Text(buyerName),
-                      subtitle:
-                          Text('Status: ${status.toString().toUpperCase()}'),
-                      trailing: unread > 0
-                          ? Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: Colors.red,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Text(
-                                unread.toString(),
-                                style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold),
-                              ),
-                            )
-                          : null,
+              }
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          return const Center(child: Text('No chats found'));
+              }
+              final chats = snapshot.data!.docs;
+              return ListView.builder(
+                itemCount: chats.length,
+                itemBuilder: (context, index) {
+            final chatDoc = chats[index];
+            final chatId = chatDoc.id;
+            final chatData = chatDoc.data() as Map<String, dynamic>;
+            final buyerName = chatData['buyerName'] ?? 'Unknown';
+            final lastMessage = chatData['lastMessage'] ?? '';
+            final lastMessageTime = chatData['lastMessageTime'] != null
+                ? (chatData['lastMessageTime'] as Timestamp).toDate()
+                : null;
+            final bundleId = chatData['bundleId'] ?? '';
+            final status = chatData['status'] ?? 'pending';
+                  final selected = _selectedVendorChatIds.contains(chatId);
+
+            // Status color map
+            final Map<String, Color> statusColors = {
+              'pending': Colors.orange,
+              'processing': Colors.blue,
+              'data_sent': Colors.green,
+              'completed': Colors.grey, // completed can be grey or another color if you want
+              'cancelled': Colors.red,
+            };
+            final statusColor = statusColors[status] ?? Colors.grey;
+
+                  return FutureBuilder<DocumentSnapshot>(
+              future: bundleId.isNotEmpty
+                  ? FirebaseFirestore.instance.collection('listings').doc(bundleId).get()
+                  : Future.value(null),
+              builder: (context, bundleSnap) {
+                String bundleInfo = '';
+                Color networkColor = Colors.grey;
+                IconData networkIcon = Icons.wifi;
+                if (bundleSnap.hasData && bundleSnap.data != null && bundleSnap.data!.exists) {
+                  final bundleData = bundleSnap.data!.data() as Map<String, dynamic>?;
+                  if (bundleData != null) {
+                    final dataAmount = bundleData['dataAmount'] ?? 0;
+                    final provider = bundleData['provider'] ?? '';
+                    final price = bundleData['price'] ?? 0;
+                    bundleInfo = '${dataAmount}GB - GHS ${price.toStringAsFixed(2)}';
+                    switch (provider) {
+                      case 'MTN':
+                        networkColor = const Color(0xFFFFB300);
+                        networkIcon = Icons.wifi;
+                        break;
+                      case 'AIRTELTIGO':
+                        networkColor = const Color(0xFF1976D2);
+                        networkIcon = Icons.wifi;
+                        break;
+                      case 'TELECEL':
+                        networkColor = const Color(0xFFD32F2F);
+                        networkIcon = Icons.wifi;
+                        break;
+                      default:
+                        networkColor = Colors.grey;
+                    }
+                  }
+                      }
+                      return StreamBuilder<QuerySnapshot>(
+                  stream: chatDoc.reference
+                            .collection('messages')
+                            .where('isRead', isEqualTo: false)
+                      .where('senderId', isEqualTo: chatData['buyerId'])
+                            .snapshots(),
+                  builder: (context, unreadSnap) {
+                    final unreadCount = unreadSnap.data?.docs.length ?? 0;
+                          return ListTile(
+                      leading: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // Status dot
+                          Container(
+                            width: 12,
+                            height: 12,
+                            margin: const EdgeInsets.only(right: 8),
+                            decoration: BoxDecoration(
+                              color: statusColor,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          _vendorChatSelectionMode
+                              ? Checkbox(
+                                  value: selected,
+                                  onChanged: (value) => _toggleVendorChatSelection(chatId),
+                                )
+                              : CircleAvatar(
+                                  backgroundColor: Colors.blue,
+                                      child: Text(
+                                    buyerName.isNotEmpty ? buyerName[0].toUpperCase() : '?',
+                                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                                      ),
+                                ),
+                        ],
+                      ),
+                      title: Text(
+                        buyerName,
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (bundleInfo.isNotEmpty) ...[
+                            Row(
+                              children: [
+                                Icon(networkIcon, color: networkColor, size: 14),
+                                const SizedBox(width: 4),
+                                Text(
+                                  bundleInfo,
+                                  style: TextStyle(
+                                    color: networkColor,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 12,
+          ),
+        ),
+      ],
+                            ),
+                            const SizedBox(height: 2),
+                          ],
+                          Text(
+                            lastMessage,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 13),
+                          ),
+                          if (lastMessageTime != null)
+                            Text(
+                              _formatTime(lastMessageTime),
+                              style: const TextStyle(fontSize: 11, color: Colors.grey),
+                            ),
+                        ],
+                      ),
+                      trailing: _vendorChatSelectionMode
+                        ? null
+                          : (unreadCount > 0
+                            ? Container(
+                                  padding: const EdgeInsets.all(6),
+                                decoration: BoxDecoration(
+                                  color: Colors.red,
+                                    borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                    unreadCount.toString(),
+                                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                                ),
+                              )
+                              : const SizedBox.shrink()),
                       onTap: () {
+                        if (_vendorChatSelectionMode) {
+                          _toggleVendorChatSelection(chatId);
+                        } else {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
                             builder: (context) => VendorChatDetailScreen(
                               chatId: chatId,
-                              buyerId: buyerId,
+                                buyerId: chatData['buyerId'] ?? '',
                               buyerName: buyerName,
-                              bundleId: bundleId,
+                                bundleId: chatData['bundleId'] ?? '',
                             ),
                           ),
                         );
+                        }
                       },
+                      onLongPress: !_vendorChatSelectionMode ? () => _toggleVendorChatSelectionMode(true) : null,
                     );
                   },
                 );
@@ -904,28 +961,26 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
                 .snapshots(),
             builder: (context, snapshot) {
               if (snapshot.hasError) {
-                return Center(child: Text('Error: \\${snapshot.error}'));
+                return Center(child: Text('Error: ${snapshot.error}'));
               }
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());
               }
               if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                return const Center(child: Text('No completed transactions yet'));
+                return const Center(child: Text('No transactions found'));
               }
-              final transactions = snapshot.data!.docs;
-              // Apply filters
-              final filtered = transactions.where((doc) {
+              
+              var filtered = snapshot.data!.docs.where((doc) {
                 final tx = doc.data() as Map<String, dynamic>;
-                final provider = tx['provider'] != null
-                  ? NetworkProvider.values.firstWhere(
-                      (e) => e.toString().split('.').last.toLowerCase() == tx['provider'].toString().toLowerCase(),
-                      orElse: () => NetworkProvider.MTN)
-                  : null;
-                final dataAmount = (tx['dataAmount'] ?? 0).toDouble();
-                final providerMatch = _selectedProvider == null || provider == _selectedProvider;
-                final sizeMatch = _minDataAmount == null || dataAmount >= _minDataAmount!;
+                final provider = tx['provider'] as String?;
+                final dataAmount = tx['dataAmount'] as double?;
+                
+                final providerMatch = _selectedProvider == null || provider == _selectedProvider.toString();
+                final sizeMatch = _minDataAmount == null || (dataAmount != null && dataAmount >= _minDataAmount!);
+                
                 return providerMatch && sizeMatch;
               }).toList();
+              
               if (filtered.isEmpty) {
                 return const Center(child: Text('No transactions match your filters'));
               }
@@ -1009,6 +1064,104 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
         ),
       ],
     );
+  }
+
+  void _showAddListingDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => ListingFormDialog(
+        onSubmit: (data) async {
+          try {
+            await _listingRepository.createListing(
+              BundleListing(
+                id: '', // Will be set by Firestore
+                vendorId: _vendorId,
+                provider: NetworkProvider.values.firstWhere(
+                  (e) => e.toString() == 'NetworkProvider.${data['provider']}',
+                ),
+                dataAmount: data['dataAmount'],
+                price: data['price'],
+                description: data['description'],
+                estimatedDeliveryTime: data['estimatedDeliveryTime'],
+                availableStock: data['availableStock'],
+                status: ListingStatus.ACTIVE,
+                createdAt: DateTime.now(),
+                updatedAt: DateTime.now(),
+                paymentMethods: data['paymentMethods'],
+                minOrder: data['minOrder'],
+                maxOrder: data['maxOrder'],
+              ),
+            );
+            Navigator.pop(context);
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Listing created successfully')),
+            );
+          } catch (e) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Failed to create listing: $e')),
+            );
+          }
+        },
+      ),
+    );
+  }
+
+  void _handleListingAction(String action, BundleListing listing) {
+    switch (action) {
+      case 'edit':
+        // TODO: Implement edit functionality
+        break;
+      case 'delete':
+        _deleteListing(listing);
+        break;
+    }
+  }
+
+  Future<void> _deleteListing(BundleListing listing) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Listing'),
+        content: const Text('Are you sure you want to delete this listing?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+          ),
+        ],
+      ),
+    );
+    
+    if (confirm == true) {
+      try {
+        await _listingRepository.deleteListing(listing.id);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Listing deleted successfully')),
+        );
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to delete listing: $e')),
+        );
+      }
+    }
+  }
+
+  Color _getProviderColor(NetworkProvider provider) {
+    switch (provider) {
+      case NetworkProvider.MTN:
+        return Colors.yellow;
+      case NetworkProvider.TELECEL:
+        return Colors.red;
+      case NetworkProvider.AIRTELTIGO:
+        return Colors.blue;
+      default:
+        return Colors.grey;
+    }
   }
 
   String _monthName(int month) {

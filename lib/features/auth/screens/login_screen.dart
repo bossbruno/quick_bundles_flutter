@@ -4,6 +4,8 @@ import 'signup_screen.dart';
 import '../../marketplace/screens/marketplace_screen.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:quick_bundles_flutter/services/fcm_v1_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -43,6 +45,19 @@ class _LoginScreenState extends State<LoginScreen> {
         // Check if user document exists in Firestore
         final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
         if (doc.exists) {
+          // Get FCM token and update user document
+          try {
+            final fcmToken = await FirebaseMessaging.instance.getToken();
+            if (fcmToken != null) {
+              await FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(user.uid)
+                  .update({'fcmToken': fcmToken});
+            }
+          } catch (e) {
+            debugPrint('Error updating FCM token: $e');
+          }
+          
           if (mounted) {
             Navigator.of(context).pushAndRemoveUntil(
               MaterialPageRoute(builder: (context) => const MarketplaceScreen()),

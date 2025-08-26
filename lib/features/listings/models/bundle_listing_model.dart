@@ -88,8 +88,12 @@ class BundleListing {
         (e) => e.toString() == 'ListingStatus.${data['status']}',
         orElse: () => ListingStatus.INACTIVE,
       ),
-      createdAt: (data['createdAt'] as Timestamp).toDate(),
-      updatedAt: (data['updatedAt'] as Timestamp).toDate(),
+      createdAt: (data['createdAt'] is Timestamp)
+        ? (data['createdAt'] as Timestamp).toDate()
+        : DateTime.now(),
+      updatedAt: (data['updatedAt'] is Timestamp)
+        ? (data['updatedAt'] as Timestamp).toDate()
+        : DateTime.now(),
       paymentMethods: data['paymentMethods'] ?? {},
       minOrder: (data['minOrder'] ?? 0.0).toDouble(),
       maxOrder: (data['maxOrder'] ?? 0.0).toDouble(),

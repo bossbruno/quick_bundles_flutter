@@ -73,6 +73,41 @@ class AuthService {
     await OneSignalService.logout();
   }
 
+  // Update vendor profile
+  Future<void> updateVendorProfile({
+    required String userId,
+    String? about,
+    String? phone,
+    String? email,
+    String? businessHours,
+    List<String>? serviceAreas,
+    Map<String, bool>? paymentMethods,
+  }) async {
+    try {
+      final userData = <String, dynamic>{
+        'updatedAt': DateTime.now(),
+      };
+
+      // Add fields to update if they are provided
+      if (about != null) userData['about'] = about;
+      if (phone != null) userData['phone'] = phone;
+      if (email != null) userData['email'] = email;
+      if (businessHours != null) userData['businessHours'] = businessHours;
+      if (serviceAreas != null) userData['serviceAreas'] = serviceAreas;
+      if (paymentMethods != null) userData['paymentMethods'] = paymentMethods;
+
+      // Update user document in Firestore
+      await _db.usersCollection.doc(userId).update(userData);
+
+      // Update email in Firebase Auth if it was changed
+      if (email != null && _auth.currentUser?.email != email) {
+        await _auth.currentUser?.updateEmail(email);
+      }
+    } catch (e) {
+      throw Exception('Failed to update vendor profile: $e');
+    }
+  }
+
   // Password reset email
   Future<void> sendPasswordResetEmail(String email) async {
     try {

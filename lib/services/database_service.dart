@@ -42,6 +42,7 @@ class DatabaseService {
     String? bundleId,
     String? recipientNumber,
     String? provider,
+    double? dataAmount, // Add dataAmount parameter
   }) async {
     Map<String, dynamic> transactionData = {
       'userId': userId,
@@ -53,27 +54,60 @@ class DatabaseService {
 
     // Add bundle-specific data if this is a bundle purchase
     if (type == 'bundle_purchase' && bundleId != null) {
-      final bundleDoc = await bundlesCollection.doc(bundleId).get();
-      final bundleData = bundleDoc.data() as Map<String, dynamic>;
+      final bundleDoc = await FirebaseFirestore.instance.collection('listings').doc(bundleId).get();
+      final bundleData = bundleDoc.data();
+      if (bundleData == null) {
+        throw Exception('Listing not found for id: $bundleId');
+      }
+      
+      // Calculate the data amount if not provided
+      final double bundleDataAmount = dataAmount ?? (bundleData['dataAmount'] as num?)?.toDouble() ?? 0.0;
       
       transactionData.addAll({
         'bundleId': bundleId,
-        'bundleName': bundleData['name'],
-        'recipientNumber': recipientNumber,
-        'provider': provider,
-        'dataAmount': bundleData['dataAmount'],
-        'validity': bundleData['validity'],
+        'bundleName': bundleData['name'] ?? 'Data Bundle',
+        'recipientNumber': recipientNumber ?? '',
+        'provider': provider ?? bundleData['provider']?.toString() ?? '',
+        'dataAmount': bundleDataAmount,
+        'validity': bundleData['validity'] ?? 30, // Default to 30 days if not specified
+        'vendorId': bundleData['vendorId'] ?? '',
+        'vendorName': bundleData['businessName'] ?? 
+                     bundleData['vendorName'] ?? 
+                     await _getVendorName(bundleData['vendorId'] ?? '') ?? 
+                     'Unknown Vendor',
+        'buyerId': userId,
+        'buyerName': await _getBuyerName(userId) ?? 'Unknown Buyer',
       });
     }
 
     final transaction = await transactionsCollection.add(transactionData);
-
     // Update user's total transactions
     await usersCollection.doc(userId).update({
       'totalTransactions': FieldValue.increment(1),
     });
-
     return transaction;
+  }
+
+  // Helper to fetch vendor's business name
+  Future<String> _getVendorName(String vendorId) async {
+    if (vendorId.isEmpty) return '';
+    final vendorDoc = await usersCollection.doc(vendorId).get();
+    if (vendorDoc.exists) {
+      final vendorData = vendorDoc.data() as Map<String, dynamic>?;
+      return vendorData?['businessName'] ?? vendorData?['name'] ?? '';
+    }
+    return '';
+  }
+
+  // Helper to fetch buyer's name
+  Future<String> _getBuyerName(String buyerId) async {
+    if (buyerId.isEmpty) return '';
+    final buyerDoc = await usersCollection.doc(buyerId).get();
+    if (buyerDoc.exists) {
+      final buyerData = buyerDoc.data() as Map<String, dynamic>?;
+      return buyerData?['name'] ?? buyerData?['displayName'] ?? '';
+    }
+    return '';
   }
 
   // Update transaction status

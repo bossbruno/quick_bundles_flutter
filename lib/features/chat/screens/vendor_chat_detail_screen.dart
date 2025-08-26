@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
+import 'package:quick_bundles_flutter/services/fcm_v1_service.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import '../../../services/notification_service.dart';
 
@@ -34,6 +35,7 @@ class _VendorChatDetailScreenState extends State<VendorChatDetailScreen> {
   final ImagePicker _picker = ImagePicker();
   File? _imageFile;
   String? activeOrderId;
+  String? _lastNotifiedMessageId; // Track last notified message
 
   @override
   void initState() {
@@ -107,21 +109,31 @@ class _VendorChatDetailScreenState extends State<VendorChatDetailScreen> {
     });
   }
 
-  void _sendMessage() async {
-    if (_messageController.text.trim().isEmpty && _imageFile == null) return;
+  Future<void> _sendMessage() async {
+    if ((_messageController.text.trim().isEmpty && _imageFile == null) || _isSending) return;
+    
     setState(() => _isSending = true);
+    
+    // Get message data before clearing the controller
+    final messageText = _messageController.text.trim();
+    final imageToSend = _imageFile;
+    
+    // Clear UI immediately for better UX
+    _messageController.clear();
+    setState(() => _imageFile = null);
+    
     try {
       String? imageUrl;
-      if (_imageFile != null) {
+      
+      if (imageToSend != null) {
         // Upload image to Firebase Storage
         final fileName = 'chat_images/${DateTime.now().millisecondsSinceEpoch}_${user!.uid}.jpg';
         final ref = FirebaseStorage.instance.ref().child(fileName);
-        await ref.putFile(_imageFile!);
+        await ref.putFile(imageToSend);
         imageUrl = await ref.getDownloadURL();
       }
       
-      final messageText = _messageController.text.trim();
-      
+      // Add message to subcollection
       await FirebaseFirestore.instance
           .collection('chats')
           .doc(widget.chatId)
@@ -134,29 +146,85 @@ class _VendorChatDetailScreenState extends State<VendorChatDetailScreen> {
         'imageUrl': imageUrl,
       });
       
-      // Send notification to buyer
-      if (user!.uid != widget.buyerId) {
-        await NotificationService().sendChatNotification(
-          recipientUserId: widget.buyerId,
-          senderName: user!.displayName ?? 'Vendor',
-          message: imageUrl != null ? '📷 Image' : messageText,
-          chatId: widget.chatId,
-          bundleId: widget.bundleId,
-        );
-      }
-      
-      _messageController.clear();
-      setState(() => _imageFile = null);
-      _scrollToBottom();
-      await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).update({
+      // Update chat document with last message info
+      await FirebaseFirestore.instance
+          .collection('chats')
+          .doc(widget.chatId)
+          .update({
+        'lastMessage': imageUrl != null ? '📷 Image' : messageText,
+        'lastMessageTime': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
+      
+      // Send notification to buyer if not sending to self
+      if (user!.uid != widget.buyerId) {
+        try {
+          // Get buyer's FCM token from Firestore
+          final buyerDoc = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(widget.buyerId)
+              .get();
+              
+          final buyerFcmToken = buyerDoc.data()?['fcmToken'];
+          final buyerName = buyerDoc.data()?['name'] ?? 'Buyer';
+          final bundleName = bundleInfo?['description'] ?? 'Bundle';
+          
+          if (buyerFcmToken != null && buyerFcmToken is String) {
+            // Send enhanced FCM v1 push notification with sound and category
+            await FCMV1Service().sendMessage(
+              token: buyerFcmToken,
+              title: 'New message from ${user!.displayName ?? 'Vendor'}' ,
+              body: imageUrl != null ? '📷 Image' : messageText,
+              sound: 'default',
+              category: 'MESSAGE_CATEGORY',
+              clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+              data: {
+                'type': 'chat',
+                'chatId': widget.chatId,
+                'bundleId': widget.bundleId,
+                'senderId': user!.uid,
+                'senderName': user!.displayName ?? 'Vendor',
+                'bundleName': bundleName,
+                'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+              },
+            );
+            debugPrint('FCM notification sent to buyer');
+            
+            // Also show local notification for in-app notification
+            if (mounted) {
+              await NotificationService().showLocalChatNotification(
+                title: 'New message from ${user!.displayName ?? 'Vendor'}' ,
+                body: imageUrl != null ? '📷 Image' : messageText,
+                payload: 'chat_${widget.chatId}_${widget.bundleId}',
+              );
+            }
+          } else {
+            debugPrint('Buyer FCM token not found');
+          }
+        } catch (e, stack) {
+          debugPrint('Error sending FCM notification: $e');
+          debugPrint('Stack trace: $stack');
+          // Don't fail the message send if notification fails
+        }
+      }
+      
+      // Scroll to bottom after sending
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _scrollController.hasClients) {
+      _scrollToBottom();
+        }
+      });
     } catch (e) {
+      debugPrint('Error sending message: $e');
+      if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to send message: $e')),
+          SnackBar(content: Text('Failed to send message. Please try again.')),
       );
+      }
     } finally {
+      if (mounted) {
       setState(() => _isSending = false);
+      }
     }
   }
 
@@ -173,15 +241,38 @@ class _VendorChatDetailScreenState extends State<VendorChatDetailScreen> {
     }
   }
 
-  void _updateStatus(String status) async {
-    if (activeOrderId != null) {
-      await FirebaseFirestore.instance.collection('transactions').doc(activeOrderId).update({
+  Future<void> _updateStatus(String status) async {
+    if (activeOrderId == null) return;
+    
+    final batch = FirebaseFirestore.instance.batch();
+    final now = FieldValue.serverTimestamp();
+    
+    // Update transaction status
+    final txRef = FirebaseFirestore.instance.collection('transactions').doc(activeOrderId);
+    batch.update(txRef, {
       'status': status,
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': now,
     });
-    setState(() {
-      orderStatus = status;
+    
+    // Update chat status
+    final chatRef = FirebaseFirestore.instance.collection('chats').doc(widget.chatId);
+    batch.update(chatRef, {
+      'status': status,
+      'updatedAt': now,
     });
+    
+    try {
+      await batch.commit();
+      setState(() {
+        orderStatus = status;
+      });
+    } catch (e) {
+      debugPrint('Error updating status: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to update status. Please try again.')),
+        );
+      }
     }
   }
 
@@ -256,26 +347,71 @@ class _VendorChatDetailScreenState extends State<VendorChatDetailScreen> {
                         ],
                             onChanged: (val) async {
                               if (val != null) {
-                                final batch = FirebaseFirestore.instance.batch();
-                                final chatRef = FirebaseFirestore.instance.collection('chats').doc(widget.chatId);
-                                final now = FieldValue.serverTimestamp();
-                                
-                                // Update chat status
-                                batch.update(chatRef, {
-                                  'status': val,
-                                  'updatedAt': now,
-                                });
-                                
-                                // Update transaction status if activeOrderId exists
-                                if (activeOrderId != null) {
-                                  final txRef = FirebaseFirestore.instance.collection('transactions').doc(activeOrderId);
-                                  batch.update(txRef, {
+                                try {
+                                  final batch = FirebaseFirestore.instance.batch();
+                                  final chatRef = FirebaseFirestore.instance.collection('chats').doc(widget.chatId);
+                                  final now = FieldValue.serverTimestamp();
+                                  final chatDoc = await chatRef.get();
+                                  final chatData = chatDoc.data() as Map<String, dynamic>?;
+                                  
+                                  // Update chat status
+                                  batch.update(chatRef, {
                                     'status': val,
                                     'updatedAt': now,
                                   });
+                                  
+                                  // Only create/update transaction when marking as completed
+                                  if (val == 'completed' && chatData != null) {
+                                    final txRef = FirebaseFirestore.instance.collection('transactions').doc();
+                                    final txId = txRef.id;
+                                    
+                                    // Create the transaction document
+                                    batch.set(txRef, {
+                                      'id': txId,
+                                      'userId': widget.buyerId,
+                                      'vendorId': user!.uid,
+                                      'type': 'bundle_purchase',
+                                      'amount': bundleInfo?['price'] ?? 0,
+                                      'status': 'completed',
+                                      'bundleId': widget.bundleId,
+                                      'provider': bundleInfo?['provider']?.toString().split('.').last ?? 'unknown',
+                                      'dataAmount': bundleInfo?['dataAmount'] ?? 0,
+                                      'recipientNumber': chatData['recipientNumber'] ?? '',
+                                      'createdAt': now,
+                                      'updatedAt': now,
+                                      'completedBy': user!.uid,
+                                      'completedAt': now,
+                                    });
+                                    
+                                    // Update chat with the new transaction ID
+                                    batch.update(chatRef, {
+                                      'activeOrderId': txId,
+                                    });
+                                    
+                                    // Update local state
+                                    if (mounted) {
+                                      setState(() {
+                                        activeOrderId = txId;
+                                      });
+                                    }
+                                  }
+                                  
+                                  await batch.commit();
+                                  
+                                  // Update local state
+                                  if (mounted) {
+                                    setState(() {
+                                      orderStatus = val;
+                                    });
+                                  }
+                                } catch (e) {
+                                  debugPrint('Error updating status: $e');
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Failed to update status. Please try again.')),
+                                    );
+                                  }
                                 }
-                                
-                                await batch.commit();
                               }
                         },
                       ),
@@ -305,6 +441,8 @@ class _VendorChatDetailScreenState extends State<VendorChatDetailScreen> {
                 }
                 final messages = snapshot.data!.docs;
                 WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+                // Note: Push notifications are now handled by FCM service
+                // Local notifications removed to prevent duplicates
                 return ListView.builder(
                   controller: _scrollController,
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),

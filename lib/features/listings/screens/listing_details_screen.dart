@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../models/bundle_listing_model.dart';
 import '../../../services/database_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../chat/screens/chat_screen.dart';
 
 class ListingDetailsScreen extends StatefulWidget {
   final BundleListing listing;
@@ -188,12 +190,39 @@ class _ListingDetailsScreenState extends State<ListingDetailsScreen> {
         provider: widget.listing.provider.toString().split('.').last,
       );
 
+      // Query for an existing chat for this purchase (pending/processing)
+      final chats = await FirebaseFirestore.instance
+          .collection('chats')
+          .where('buyerId', isEqualTo: user.uid)
+          .where('vendorId', isEqualTo: widget.listing.vendorId)
+          .where('bundleId', isEqualTo: widget.listing.id)
+          .where('recipientNumber', isEqualTo: formattedNumber)
+          .where('status', whereIn: ['pending', 'processing'])
+          .limit(1)
+          .get();
+
+      String? existingChatId;
+      if (chats.docs.isNotEmpty) {
+        existingChatId = chats.docs.first.id;
+      }
+
       if (mounted) {
-        // Show success message and navigate back
+        // Show success message and navigate to chat
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Bundle purchase initiated')),
         );
-        Navigator.pop(context);
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ChatScreen(
+              chatId: existingChatId ?? '',
+              vendorId: widget.listing.vendorId,
+              bundleId: widget.listing.id,
+              businessName: '', // Pass the business name if available
+              recipientNumber: formattedNumber,
+            ),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {

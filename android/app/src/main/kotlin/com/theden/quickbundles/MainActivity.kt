@@ -1,4 +1,4 @@
-package com.TheDen.quick_bundles_flutter
+package com.theden.quickbundles
 
 import io.flutter.embedding.android.FlutterActivity
 
