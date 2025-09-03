@@ -223,12 +223,12 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
               indicatorWeight: 3.0,
               indicatorSize: TabBarIndicatorSize.tab,
               labelPadding: EdgeInsets.zero,
-              tabs: [
+            tabs: [
                 Expanded(
                   child: Tab(
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
+                    children: [
                         const Icon(Icons.storefront, size: 18),
                         const SizedBox(width: 4),
                         Flexible(
@@ -302,7 +302,7 @@ class _VendorDashboardScreenState extends State<VendorDashboardScreen>
           ),
           actions: [
             if (_vendorChatSelectionMode)
-              IconButton(
+            IconButton(
                 icon: const Icon(Icons.delete, color: Colors.red),
                 onPressed: _selectedVendorChatIds.isEmpty ? null : _deleteSelectedVendorChats,
                 tooltip: 'Delete Selected',

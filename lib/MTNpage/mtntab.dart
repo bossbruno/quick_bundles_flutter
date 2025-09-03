@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_phone_direct_caller/flutter_phone_direct_caller.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class MtnScreen extends StatefulWidget {
   const MtnScreen({Key? key}) : super(key: key);
@@ -18,14 +19,20 @@ class _MtnScreenState extends State<MtnScreen> {
         onPressed: () async {
           // Added error handling and await for better control.
           try {
-            bool? res = await FlutterPhoneDirectCaller.callNumber(ussdCode);
-            if (res == false) {
-              // Handle the case where the call failed to initiate.
+            if (await Permission.phone.request().isGranted) {
+              bool? res = await FlutterPhoneDirectCaller.callNumber(ussdCode);
+              if (res == false) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Failed to initiate call.'),
+                  ),
+                );
+              }
+            } else {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Failed to initiate call.'),
-                ),
+                const SnackBar(content: Text('Phone permission required to place calls.')),
               );
+              return;
             }
           } catch (e) {
             // Handle any exceptions that might occur during the call.

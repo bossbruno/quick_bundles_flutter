@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_phone_direct_caller/flutter_phone_direct_caller.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class VodafoneScreen extends StatefulWidget {
   const VodafoneScreen({super.key});
@@ -22,16 +23,26 @@ class _VodafoneScreenState extends State<VodafoneScreen> {
         onPressed: () async {
           // Added error handling and await for better control.
           try {
-            bool? res = await FlutterPhoneDirectCaller.callNumber(ussdCode);
-            if (res == false) {
+            if (await Permission.phone.request().isGranted) {
+              bool? res = await FlutterPhoneDirectCaller.callNumber(ussdCode);
+              if (res == false) {
+                // Handle the case where the call failed to initiate.
+                if (mounted) { // Check if the widget is still in the tree
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Failed to initiate call.'),
+                    ),
+                  );
+                }
+              }
+            } else {
               // Handle the case where the call failed to initiate.
               if (mounted) { // Check if the widget is still in the tree
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Failed to initiate call.'),
-                  ),
+                  const SnackBar(content: Text('Phone permission required to place calls.')),
                 );
               }
+              return;
             }
           } catch (e) {
             // Handle any exceptions that might occur during the call.

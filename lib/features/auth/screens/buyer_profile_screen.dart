@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../settings/screens/notification_settings_screen.dart';
+import '../../admin/screens/admin_dashboard_screen.dart';
 
 class BuyerProfileScreen extends StatefulWidget {
   const BuyerProfileScreen({Key? key}) : super(key: key);
@@ -18,6 +20,7 @@ class _BuyerProfileScreenState extends State<BuyerProfileScreen> {
   bool _isEditing = false;
   final _auth = FirebaseAuth.instance;
   final _firestore = FirebaseFirestore.instance;
+  bool _isDeleting = false;
 
   @override
   void initState() {
@@ -79,6 +82,112 @@ class _BuyerProfileScreenState extends State<BuyerProfileScreen> {
       }
     }
     setState(() => _isLoading = false);
+  }
+
+  Future<void> _confirmAccountDeletion() async {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        return Padding(
+          padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            top: 16,
+            bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: const [
+                  Icon(Icons.delete_forever, color: Colors.red),
+                  SizedBox(width: 8),
+                  Text(
+                    'Delete account & data',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'This will request deletion of your account and personal data. You will be signed out immediately. We will remove your profile and personal data from our systems. Chats may be retained for the counterparty as allowed by policy.',
+                style: TextStyle(height: 1.4),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                        foregroundColor: Colors.white,
+                      ),
+                      onPressed: _isDeleting ? null : () async {
+                        Navigator.of(ctx).pop();
+                        await _performAccountDeletion();
+                      },
+                      child: _isDeleting
+                          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : const Text('Delete'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _performAccountDeletion() async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+    setState(() => _isDeleting = true);
+    try {
+      final uid = user.uid;
+
+      // Create a deletion request for backend/audit processing
+      await _firestore.collection('deletionRequests').doc(uid).set({
+        'uid': uid,
+        'email': user.email,
+        'requestedAt': FieldValue.serverTimestamp(),
+        'status': 'requested',
+        'source': 'in_app',
+      }, SetOptions(merge: true));
+
+      // Best-effort immediate personal data cleanup
+      await _firestore.collection('users').doc(uid).delete().catchError((_) {});
+
+      // Sign out user
+      await _auth.signOut();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Deletion requested. You have been signed out.')),
+      );
+      Navigator.pushReplacementNamed(context, '/login');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to request deletion: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isDeleting = false);
+    }
   }
 
   @override
@@ -208,7 +317,9 @@ class _BuyerProfileScreenState extends State<BuyerProfileScreen> {
                       title: const Text('Notification Settings'),
                       trailing: const Icon(Icons.arrow_forward_ios, size: 16),
                       onTap: () {
-                        // TODO: Navigate to notification settings
+                        Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => const NotificationSettingsScreen()),
+                        );
                       },
                     ),
                     const Divider(),
@@ -239,6 +350,34 @@ class _BuyerProfileScreenState extends State<BuyerProfileScreen> {
                       },
                     ),
                     const SizedBox(height: 20),
+                    // Admin Dashboard (only visible to admins)
+                    FutureBuilder<DocumentSnapshot>(
+                      future: FirebaseFirestore.instance.collection('users').doc(_auth.currentUser!.uid).get(),
+                      builder: (context, snapshot) {
+                        if (snapshot.hasData && snapshot.data!.exists) {
+                          final userData = snapshot.data!.data() as Map<String, dynamic>?;
+                          if (userData?['role'] == 'admin') {
+                            return Column(
+                              children: [
+                                const Divider(),
+                                ListTile(
+                                  leading: const Icon(Icons.admin_panel_settings, color: Colors.red),
+                                  title: const Text('Admin Dashboard', style: TextStyle(color: Colors.red)),
+                                  trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.red),
+                                  onTap: () {
+                                    Navigator.of(context).push(
+                                      MaterialPageRoute(builder: (_) => const AdminDashboardScreen()),
+                                    );
+                                  },
+                                ),
+                              ],
+                            );
+                          }
+                        }
+                        return const SizedBox.shrink();
+                      },
+                    ),
+                    const SizedBox(height: 20),
                     OutlinedButton.icon(
                       icon: const Icon(Icons.logout),
                       label: const Text('Sign Out'),
@@ -255,6 +394,11 @@ class _BuyerProfileScreenState extends State<BuyerProfileScreen> {
                       },
                     ),
                     const SizedBox(height: 20),
+                    TextButton.icon(
+                      onPressed: _isDeleting ? null : _confirmAccountDeletion,
+                      icon: const Icon(Icons.delete_forever, color: Colors.red),
+                      label: const Text('Delete account & data', style: TextStyle(color: Colors.red)),
+                    ),
                   ],
                 ),
               ),

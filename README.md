@@ -45,6 +45,42 @@ In addition to shortcode simplification, Quick Bundles Ghana now includes a peer
 *   **Real-Time Chat:** A built-in chat feature allows direct communication between buyers and vendors to coordinate transactions and resolve issues.
 *   **Secure Transactions:** The platform facilitates the connection, with payments handled via established methods like mobile money.
 
+## Environment Setup
+
+This project uses environment variables for sensitive configuration. Follow these steps to set up your local environment:
+
+1. **Install Dependencies**
+   ```bash
+   flutter pub get
+   ```
+
+2. **Create `.env` File**
+   - Copy `.env.example` to a new file named `.env`
+   - Fill in the required values for your Firebase configuration
+   ```bash
+   cp .env.example .env
+   ```
+
+3. **Configure Firebase**
+   - Get your Firebase config from the Firebase Console
+   - Update the following in your `.env` file:
+     ```
+     FIREBASE_API_KEY=your_api_key
+     FIREBASE_AUTH_DOMAIN=your_project_id.firebaseapp.com
+     FIREBASE_PROJECT_ID=your_project_id
+     FIREBASE_STORAGE_BUCKET=your_project_id.appspot.com
+     FIREBASE_MESSAGING_SENDER_ID=your_sender_id
+     FIREBASE_APP_ID=your_app_id
+     FIREBASE_MEASUREMENT_ID=your_measurement_id
+     ```
+
+4. **Add to .gitignore**
+   - Ensure `.env` is in your `.gitignore` file
+   - Never commit your `.env` file to version control
+
+5. **Load Environment Variables**
+   The app automatically loads environment variables in `main.dart`
+
 ## Benefits
 
 *   **Eliminates Memorization:** No more struggling to remember complex shortcodes.

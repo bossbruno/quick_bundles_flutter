@@ -6,6 +6,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:quick_bundles_flutter/services/fcm_v1_service.dart';
+import 'package:quick_bundles_flutter/services/auth_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -28,19 +29,19 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  void _login() async {
+  Future<void> _login() async {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isLoading = true);
 
     try {
-      // TODO: Implement Firebase authentication
-      // This will be handled by you
-      final userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
+      final authService = AuthService();
+      await authService.signInWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
       );
-      final user = userCredential.user;
+      
+      final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
         // Check if user document exists in Firestore
         final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
@@ -72,10 +73,26 @@ class _LoginScreenState extends State<LoginScreen> {
           }
         }
       }
+    } on FirebaseAuthException catch (e) {
+      String errorMessage = 'An error occurred. Please try again.';
+      
+      if (e.code == 'user-not-found' || e.code == 'user-disabled' || e.code == 'invalid-email') {
+        errorMessage = 'Invalid email or user not found';
+      } else if (e.code == 'wrong-password') {
+        errorMessage = 'Incorrect password. Please try again.';
+      } else if (e.code == 'too-many-requests') {
+        errorMessage = 'Too many failed attempts. Please try again later.';
+      }
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(errorMessage), backgroundColor: Colors.red),
+        );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Login failed: $e')),
+          const SnackBar(content: Text('An unexpected error occurred. Please try again.')),
         );
       }
     } finally {

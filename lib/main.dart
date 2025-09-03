@@ -5,52 +5,95 @@ import 'package:quick_bundles_flutter/MTNpage/mtntab.dart';
 import 'package:quick_bundles_flutter/VODAFONEpage/telecel_tab.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:quick_bundles_flutter/VODAFONEpage/VodafoneSplashPage.dart';
-import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'screens/auth_wrapper.dart';
-import 'firebase_options.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'core/firebase/firebase_init.dart';
 import 'features/auth/screens/login_screen.dart';
 import 'services/onesignal_service.dart';
 import 'services/fcm_v1_service.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-
 import 'AIRTELTIGOpage/at_tab.dart';
 import 'Ads_directory/ad_mob_service.dart';
-import 'services/shared_preference_service.dart';
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+Future<void> main() async {
+  try {
+    // Initialize Flutter bindings
+    WidgetsFlutterBinding.ensureInitialized();
+    
+    // Load environment variables
+    await dotenv.load(fileName: ".env");
+    
+    // Debug print environment variables
+    if (kDebugMode) {
+      print('Firebase Project ID: ${dotenv.env['FIREBASE_PROJECT_ID'] ?? 'Not found'}');
+    }
 
-  // Initialize Firebase
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
-  
-  // Initialize Shared Preferences
-  final sharedPrefs = BambooSharedPreference();
-  await sharedPrefs.init();
-  
-  // Initialize the app
-  runApp(const MyApp());
+    // Initialize Firebase
+    await FirebaseInit.initialize();
+    
+    // Initialize Shared Preferences
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
 
-  // Fire-and-forget ancillary initializations to avoid startup jank
-  unawaited(MobileAds.instance.initialize());
-  unawaited(OneSignalService.initialize());
-  unawaited(FCMV1Service().initialize());
+    // Initialize notifications
+    const AndroidInitializationSettings initializationSettingsAndroid = 
+        AndroidInitializationSettings('@mipmap/ic_launcher');
+    final DarwinInitializationSettings initializationSettingsIOS = 
+        DarwinInitializationSettings();
+    final InitializationSettings initializationSettings = InitializationSettings(
+      android: initializationSettingsAndroid,
+      iOS: initializationSettingsIOS,
+    );
+    await flutterLocalNotificationsPlugin.initialize(initializationSettings);
 
-  const AndroidInitializationSettings initializationSettingsAndroid = AndroidInitializationSettings('@mipmap/ic_launcher');
-  final DarwinInitializationSettings initializationSettingsIOS = DarwinInitializationSettings();
-  final InitializationSettings initializationSettings = InitializationSettings(
-    android: initializationSettingsAndroid,
-    iOS: initializationSettingsIOS,
-  );
-  unawaited(flutterLocalNotificationsPlugin.initialize(initializationSettings));
+    // Run the app
+    runApp(const MyApp());
+
+    // Initialize other services
+    unawaited(_initializeNotificationsAndAds());
+    unawaited(OneSignalService.initialize());
+    unawaited(FCMV1Service().initialize());
+    
+  } catch (e) {
+    if (kDebugMode) {
+      print('Error initializing app: $e');
+    }
+    rethrow;
+  }
+}
+
+Future<void> _initializeNotificationsAndAds() async {
+  try {
+    if (!kIsWeb) {
+      // Android 13+ notification permission request at runtime
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        final FirebaseMessaging messaging = FirebaseMessaging.instance;
+        await messaging.requestPermission(
+          alert: true,
+          announcement: false,
+          badge: true,
+          carPlay: false,
+          criticalAlert: false,
+          provisional: false,
+          sound: true,
+        );
+      }
+    }
+  } catch (_) {}
+
+  // Initialize Mobile Ads after permissions and (later) consent
+  try {
+    await MobileAds.instance.initialize();
+  } catch (_) {}
 }
 
 class MyApp extends StatelessWidget {

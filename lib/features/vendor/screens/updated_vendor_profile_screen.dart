@@ -21,6 +21,7 @@ class _UpdatedVendorProfileScreenState extends State<UpdatedVendorProfileScreen>
   late TabController _tabController;
   final _auth = FirebaseAuth.instance;
   bool _isCurrentUserVendor = false;
+  bool _isDeleting = false;
 
   @override
   void initState() {
@@ -133,6 +134,111 @@ class _UpdatedVendorProfileScreenState extends State<UpdatedVendorProfileScreen>
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Add listing functionality coming soon')),
     );
+  }
+
+  Future<void> _confirmAccountDeletion() async {
+    final current = FirebaseAuth.instance.currentUser;
+    if (current == null || current.uid != widget.vendorId) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('You can only delete your own account.')),
+      );
+      return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        return Padding(
+          padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            top: 16,
+            bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: const [
+                  Icon(Icons.delete_forever, color: Colors.red),
+                  SizedBox(width: 8),
+                  Text('Delete account & data', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                ],
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'This will request deletion of your account and personal data. You will be signed out immediately. Listings and personal data will be removed. Chats may be retained for buyers as allowed by policy.',
+                style: TextStyle(height: 1.4),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+                      onPressed: _isDeleting ? null : () async {
+                        Navigator.of(ctx).pop();
+                        await _performAccountDeletion();
+                      },
+                      child: _isDeleting
+                          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : const Text('Delete'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _performAccountDeletion() async {
+    final auth = FirebaseAuth.instance;
+    final user = auth.currentUser;
+    if (user == null || user.uid != widget.vendorId) return;
+    setState(() => _isDeleting = true);
+    try {
+      final uid = user.uid;
+      await FirebaseFirestore.instance.collection('deletionRequests').doc(uid).set({
+        'uid': uid,
+        'email': user.email,
+        'requestedAt': FieldValue.serverTimestamp(),
+        'status': 'requested',
+        'source': 'in_app_vendor',
+      }, SetOptions(merge: true));
+
+      await FirebaseFirestore.instance.collection('users').doc(uid).delete().catchError((_) {});
+
+      await auth.signOut();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Deletion requested. You have been signed out.')),
+      );
+      Navigator.pushReplacementNamed(context, '/login');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to request deletion: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isDeleting = false);
+    }
   }
 
   @override
@@ -342,6 +448,21 @@ class _UpdatedVendorProfileScreenState extends State<UpdatedVendorProfileScreen>
                           label: const Text('Contact Vendor'),
                           style: ElevatedButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                      ],
+
+                      // Delete Account Button (visible only to current vendor)
+                      if (_isCurrentUserVendor) ...[
+                        const SizedBox(height: 32),
+                        const Divider(height: 24),
+                        TextButton.icon(
+                          onPressed: _isDeleting ? null : _confirmAccountDeletion,
+                          icon: const Icon(Icons.delete_forever, color: Colors.red),
+                          label: const Text('Delete account & data', style: TextStyle(color: Colors.red)),
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 16),
                           ),
                         ),
                         const SizedBox(height: 24),

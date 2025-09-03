@@ -8,6 +8,7 @@ import 'dart:io';
 import 'package:firebase_storage/firebase_storage.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/database_service.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class ChatScreen extends StatefulWidget {
   final String? chatId;
@@ -42,6 +43,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final ImagePicker _picker = ImagePicker();
   File? _imageFile;
   String? _lastNotifiedMessageId; // Track last notified message
+  bool _isReporting = false;
 
   @override
   void initState() {
@@ -407,6 +409,168 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  Future<void> _showReportDialog() async {
+    final reportReasons = [
+      'Inappropriate behavior',
+      'Fraudulent activity',
+      'Spam or harassment',
+      'Technical issues',
+      'Payment problems',
+      'Data not received',
+      'Other',
+    ];
+
+    return showDialog(
+      context: context,
+      builder: (context) {
+        // Move state variables to the dialog builder scope
+        String? selectedReason;
+        final TextEditingController descriptionController = TextEditingController();
+        
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: const Text('Report Issue'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButtonFormField<String>(
+                    value: selectedReason,
+                    decoration: const InputDecoration(
+                      labelText: 'Reason for report',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: reportReasons
+                        .map((reason) => DropdownMenuItem(
+                              value: reason,
+                              child: Text(reason),
+                            ))
+                        .toList(),
+                    onChanged: (value) {
+                      setState(() {
+                        selectedReason = value;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: descriptionController,
+                    decoration: const InputDecoration(
+                      labelText: 'Description',
+                      border: OutlineInputBorder(),
+                      hintText: 'Please provide more details',
+                    ),
+                    maxLines: 3,
+                    onChanged: (value) {
+                      // Update the state when text changes
+                      setState(() {});
+                    },
+                    // Add autofocus to ensure the keyboard appears
+                    autofocus: true,
+                    // Ensure proper text input action
+                    textInputAction: TextInputAction.done,
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: selectedReason == null || descriptionController.text.trim().isEmpty
+                      ? null
+                      : () async {
+                          Navigator.pop(context);
+                          await _submitReport(selectedReason!, descriptionController.text.trim());
+                        },
+                  child: const Text('Submit Report'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _submitReport(String reason, String description) async {
+    if (chatId == null || user == null) return;
+
+    
+    setState(() => _isReporting = true);
+    try {
+      // Get chat details
+      final chatDoc = await FirebaseFirestore.instance.collection('chats').doc(chatId).get();
+      if (!chatDoc.exists) throw Exception('Chat not found');
+      
+      final chatData = chatDoc.data() as Map<String, dynamic>;
+      
+      // Get recent messages for context
+      final messagesQuery = await FirebaseFirestore.instance
+          .collection('chats')
+          .doc(chatId)
+          .collection('messages')
+          .orderBy('timestamp', descending: true)
+          .limit(10)
+          .get();
+      
+      final recentMessages = messagesQuery.docs.map((doc) {
+        final data = doc.data();
+        return {
+          'text': data['text'] ?? '',
+          'senderId': data['senderId'] ?? '',
+          'timestamp': data['timestamp'],
+          'isSystem': data['isSystem'] ?? false,
+        };
+      }).toList();
+      
+      // Create report document
+      final reportData = {
+        'chatId': chatId,
+        'bundleId': widget.bundleId,
+        'vendorId': widget.vendorId,
+        'buyerId': user!.uid,
+        'reporterId': user!.uid,
+        'reporterType': user!.uid == widget.vendorId ? 'vendor' : 'buyer',
+        'reason': reason,
+        'description': description,
+        'chatStatus': chatData['status'] ?? 'unknown',
+        'bundleDetails': {
+          'dataAmount': _bundle?.dataAmount ?? 0,
+          'provider': _bundle?.provider.toString().split('.').last ?? 'unknown',
+          'price': _bundle?.price ?? 0,
+        },
+        'recentMessages': recentMessages,
+        'createdAt': FieldValue.serverTimestamp(),
+        'status': 'pending',
+        'adminNotes': '',
+      };
+      
+      await FirebaseFirestore.instance.collection('reports').add(reportData);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Report submitted successfully. We will review it shortly.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to submit report: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isReporting = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading || _bundle == null) {
@@ -427,6 +591,15 @@ class _ChatScreenState extends State<ChatScreen> {
             return Text('Chat with ${widget.businessName}');
           },
         ),
+        actions: [
+          IconButton(
+            icon: _isReporting
+                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.report_problem),
+            onPressed: _isReporting ? null : _showReportDialog,
+            tooltip: 'Report Issue',
+          ),
+        ],
       ),
       body: chatId == null
           ? const Center(child: CircularProgressIndicator())

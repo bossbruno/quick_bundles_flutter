@@ -44,3 +44,90 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Sensitive files and directories
+# Service account keys and credentials
+assets/config/*.json
+**/keys/
+**/secrets/
+**/config/*.json
+lib/**/config/*.json
+**/*.key
+**/*.p12
+**/*.pem
+**/*.crt
+**/*.cer
+**/*.der
+**/*.pfx
+**/*.p7b
+**/*.p7c
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Firebase and Google Services
+**/google-services.json
+**/GoogleService-Info.plist
+**/service-account.json
+**/service-account-*.json
+
+# API keys and sensitive data
+**/api_keys.dart
+**/secrets.dart
+**/credentials.dart
+**/config.dart
+lib/config/*.json
+
+# Android keystores and signing configs
+**/*.keystore
+**/*.jks
+**/*.keystore.properties
+**/key.properties
+**/local.properties
+
+# iOS provisioning profiles
+**/*.mobileprovision
+**/*.provisionprofile
+**/*.pbxuser
+**/*.xcuserdatad
+**/*.xccheckout
+**/*.xcscmblueprint
+
+# Local development files
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Build directories
+/build/
+/android/app/debug/
+/android/app/profile/
+/android/app/release/
+
+# Firebase
+**/google-services.json
+**/GoogleService-Info.plist
+**/firebase-debug.log
+**/firebase-debug.*.log
+
+# API keys and secrets
+**/api_keys.dart
+**/secrets.dart
+**/credentials.dart
+**/config.dart
+
+# Android keystores
+**/*.keystore
+**/*.jks
+**/*.keystore.properties
+
+# iOS provisioning profiles
+**/*.mobileprovision
+**/*.provisionprofile
+
