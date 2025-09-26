@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'user_verification_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({Key? key}) : super(key: key);
@@ -205,144 +206,172 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       );
     }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Admin Dashboard'),
-        backgroundColor: Colors.red,
-        foregroundColor: Colors.white,
-      ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: _firestore
-            .collection('reports')
-            .orderBy('createdAt', descending: true)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return Center(child: Text('Error: ${snapshot.error}'));
-          }
-
-          if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          final reports = snapshot.data!.docs;
-
-          if (reports.isEmpty) {
-            return const Center(
-              child: Text('No reports found. All clear! 🎉'),
-            );
-          }
-
-          return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: reports.length,
-            itemBuilder: (context, index) {
-              final report = reports[index].data() as Map<String, dynamic>;
-              final reportId = reports[index].id;
-              final createdAt = report['createdAt'] as Timestamp?;
-              final status = report['status'] ?? 'pending';
-              
-              Color statusColor;
-              switch (status) {
-                case 'pending':
-                  statusColor = Colors.orange;
-                  break;
-                case 'resolved':
-                  statusColor = Colors.green;
-                  break;
-                case 'investigating':
-                  statusColor = Colors.blue;
-                  break;
-                case 'dismissed':
-                  statusColor = Colors.grey;
-                  break;
-                default:
-                  statusColor = Colors.grey;
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Admin Dashboard'),
+          backgroundColor: Colors.red,
+          foregroundColor: Colors.white,
+          bottom: const TabBar(
+            tabs: [
+              Tab(icon: Icon(Icons.report_problem), text: 'Reports'),
+              Tab(icon: Icon(Icons.verified_user), text: 'User Verifications'),
+            ],
+            indicatorColor: Colors.white,
+            labelColor: Colors.white,
+            unselectedLabelColor: Colors.white70,
+          ),
+        ),
+      body: TabBarView(
+        children: [
+          // Reports Tab
+          StreamBuilder<QuerySnapshot>(
+            stream: _firestore
+                .collection('reports')
+                .orderBy('createdAt', descending: true)
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return Center(child: Text('Error: ${snapshot.error}'));
               }
 
-              return Card(
-                margin: const EdgeInsets.only(bottom: 12),
-                child: ListTile(
-                  title: Text(
-                    report['reason'] ?? 'Unknown Reason',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(report['description'] ?? 'No description'),
-                      const SizedBox(height: 4),
-                      Row(
+              if (!snapshot.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              final reports = snapshot.data!.docs;
+
+              if (reports.isEmpty) {
+                return const Center(
+                  child: Text('No reports found. All clear! 🎉'),
+                );
+              }
+
+              return ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: reports.length,
+                itemBuilder: (context, index) {
+                  final report = reports[index].data() as Map<String, dynamic>;
+                  final reportId = reports[index].id;
+                  final createdAt = report['createdAt'] as Timestamp?;
+                  final status = report['status'] ?? 'pending';
+                  
+                  Color statusColor;
+                  switch (status) {
+                    case 'pending':
+                      statusColor = Colors.orange;
+                      break;
+                    case 'resolved':
+                      statusColor = Colors.green;
+                      break;
+                    case 'investigating':
+                      statusColor = Colors.blue;
+                      break;
+                    case 'dismissed':
+                      statusColor = Colors.grey;
+                      break;
+                    default:
+                      statusColor = Colors.grey;
+                  }
+
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    child: ListTile(
+                      title: Text(
+                        report['reason'] ?? 'Unknown Reason',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: statusColor,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(
-                              status.toUpperCase(),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
+                          Text(report['description'] ?? 'No description'),
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: statusColor,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  status.toUpperCase(),
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                '${report['reporterType'] ?? 'Unknown'}',
+                                style: TextStyle(
+                                  color: Colors.grey[600],
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (createdAt != null)
+                            Text(
+                              'Reported: ${createdAt.toDate().toString().substring(0, 16)}',
+                              style: TextStyle(
+                                color: Colors.grey[500],
+                                fontSize: 11,
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            '${report['reporterType'] ?? 'Unknown'}',
-                            style: TextStyle(
-                              color: Colors.grey[600],
-                              fontSize: 12,
-                            ),
-                          ),
                         ],
                       ),
-                      if (createdAt != null)
-                        Text(
-                          'Reported: ${createdAt.toDate().toString().substring(0, 16)}',
-                          style: TextStyle(
-                            color: Colors.grey[500],
-                            fontSize: 11,
-                          ),
-                        ),
-                    ],
-                  ),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.visibility),
-                    onPressed: () => _showReportDetails({...report, 'id': reportId}),
-                    tooltip: 'View Details',
-                  ),
-                  onTap: () => _showReportDetails({...report, 'id': reportId}),
-                ),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.visibility),
+                        onPressed: () => _showReportDetails({...report, 'id': reportId}),
+                        tooltip: 'View Details',
+                      ),
+                      onTap: () => _showReportDetails({...report, 'id': reportId}),
+                    ),
+                  );
+                },
               );
             },
-          );
+          ),
+          
+          // User Verifications Tab
+          const UserVerificationScreen(),
+        ],
+      ),
+      floatingActionButton: Builder(
+        builder: (context) {
+          if (DefaultTabController.of(context)?.index == 0) {
+            // Only show FAB on the Reports tab
+            return FloatingActionButton.extended(
+              onPressed: () async {
+                final Uri emailUri = Uri(
+                  scheme: 'mailto',
+                  path: 'kwakye105@gmail.com',
+                  query: 'subject=Quick Bundles Admin Report Summary',
+                );
+                
+                if (await canLaunchUrl(emailUri)) {
+                  await launchUrl(emailUri);
+                } else {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Could not open email client')),
+                    );
+                  }
+                }
+              },
+              icon: const Icon(Icons.email),
+              label: const Text('Email Admin'),
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            );
+          }
+          return const SizedBox.shrink();
         },
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () async {
-          final Uri emailUri = Uri(
-            scheme: 'mailto',
-            path: 'kwakye105@gmail.com',
-            query: 'subject=Quick Bundles Admin Report Summary',
-          );
-          
-          if (await canLaunchUrl(emailUri)) {
-            await launchUrl(emailUri);
-          } else {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Could not open email client')),
-              );
-            }
-          }
-        },
-        icon: const Icon(Icons.email),
-        label: const Text('Email Admin'),
-        backgroundColor: Colors.red,
-        foregroundColor: Colors.white,
       ),
     );
   }

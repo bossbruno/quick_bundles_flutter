@@ -44,11 +44,11 @@ class FCMV1Service {
       try {
         final jsonString = await rootBundle.loadString(
             'assets/config/service-account.json');
-        await _storage.write(key: _serviceAccountKey, value: jsonString);
-
-        // Parse project ID
-        final json = jsonDecode(jsonString);
-        _projectId = json['project_id'];
+      await _storage.write(key: _serviceAccountKey, value: jsonString);
+      
+      // Parse project ID
+      final json = jsonDecode(jsonString);
+      _projectId = json['project_id'];
         _clientEmail = json['client_email'];
         _privateKey = json['private_key'];
       } catch (e) {
@@ -133,13 +133,13 @@ class FCMV1Service {
 
     final client = await _getAuthClient();
     final fcmApi = fcm.FirebaseCloudMessagingApi(client);
-
+    
     try {
       // Create notification payload
       final notification = fcm.Notification()
         ..title = title
         ..body = body;
-
+      
       // Android configuration
       final androidConfig = fcm.AndroidConfig()
         ..priority = 'high'
@@ -151,7 +151,7 @@ class FCMV1Service {
               .now()
               .millisecondsSinceEpoch}',
         );
-
+      
       // APNS configuration for iOS
       final apnsConfig = fcm.ApnsConfig(
         headers: {
@@ -174,7 +174,7 @@ class FCMV1Service {
           ...?data,
         },
       );
-
+      
       // Build the message
       final message = fcm.Message()
         ..token = token
@@ -189,16 +189,16 @@ class FCMV1Service {
         ..fcmOptions = fcm.FcmOptions(
           analyticsLabel: 'chat_message',
         );
-
+      
       // Send with retry logic
       int retries = 2;
       while (retries >= 0) {
         try {
-          await fcmApi.projects.messages.send(
+      await fcmApi.projects.messages.send(
             fcm.SendMessageRequest()
               ..message = message,
-            'projects/$_projectId',
-          );
+        'projects/$_projectId',
+      );
           debugPrint('FCM sent successfully');
           return;
         } on fcm.DetailedApiRequestError catch (e) {
@@ -263,7 +263,7 @@ class FCMV1Service {
         provisional: false,
         sound: true,
       );
-
+      
       debugPrint(
           'Notification permission status: ${settings.authorizationStatus}');
 
@@ -328,14 +328,14 @@ class FCMV1Service {
     } catch (e) {
       debugPrint('Error refreshing FCM token: $e');
       rethrow;
-    }
   }
+}
 
 // Background handler
-  @pragma('vm:entry-point')
+@pragma('vm:entry-point')
   Future<void> _firebaseMessagingBackgroundHandler(
       RemoteMessage message) async {
-    await Firebase.initializeApp();
-    debugPrint('Background message: ${message.messageId}');
+  await Firebase.initializeApp();
+  debugPrint('Background message: ${message.messageId}');
   }
 }

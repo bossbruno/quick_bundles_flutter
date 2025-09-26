@@ -17,7 +17,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 3.0.0+1
+version: 3.2.0+7
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -48,8 +48,8 @@ dependencies:
   firebase_storage: ^12.1.1
   # firebase_messaging: ^14.7.10
   firebase_messaging: ^15.0.2
-  flutter_dotenv: ^5.1.0
   shared_preferences: ^2.2.3
+  flutter_dotenv: ^5.1.0
   get: ^4.6.6
   googleapis: ^11.0.0
   googleapis_auth: ^1.4.0
@@ -86,7 +86,7 @@ dev_dependencies:
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/icons_gen.png"
+  image_path: "assets/playstoreicon.png"
   min_sdk_android: 21 # Minimum SDK version for Android
   web:
     generate: false
@@ -98,7 +98,7 @@ flutter_launcher_icons:
     generate: false
   remove_alpha_ios: true
   adaptive_icon_background: "#ffffff" # Background color for adaptive icons
-  adaptive_icon_foreground: "assets/icons_gen.png"
+  adaptive_icon_foreground: "assets/playstoreicon.png"
 
 
   # The "flutter_lints" package below contains a set of recommended lints to

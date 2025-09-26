@@ -99,6 +99,12 @@ class _SignupScreenState extends State<SignupScreen> {
         password: _passwordController.text,
       );
 
+      // Upload Ghana Card image if present
+      String? ghanaCardImageUrl;
+      if (_ghanaCardImage != null) {
+        ghanaCardImageUrl = await _uploadGhanaCardImage(userCredential.user!.uid);
+      }
+
       // Prepare user data
       final userData = {
         'name': _nameController.text.trim(),
@@ -106,26 +112,24 @@ class _SignupScreenState extends State<SignupScreen> {
         'phone': _phoneController.text.trim(),
         'userType': _selectedUserType.toString().split('.').last,
         'createdAt': FieldValue.serverTimestamp(),
+        'ghanaCardNumber': _ghanaCardController.text.trim(),
+        'isVerified': _selectedUserType == UserType.user, // Users are auto-verified
       };
+
+      // Add Ghana Card image URL if uploaded
+      if (ghanaCardImageUrl != null) {
+        userData['ghanaCardImageUrl'] = ghanaCardImageUrl;
+      }
 
       // Add vendor specific data if user is a vendor
       if (_selectedUserType == UserType.vendor) {
-        // Upload Ghana Card image if present
-        String? ghanaCardImageUrl;
-        if (_ghanaCardImage != null) {
-          ghanaCardImageUrl = await _uploadGhanaCardImage(userCredential.user!.uid);
-        }
         userData.addAll({
           'businessName': _businessNameController.text.trim(),
           'businessAddress': _businessAddressController.text.trim(),
           'businessPhone': _businessPhoneController.text.trim(),
           'businessEmail': _businessEmailController.text.trim(),
-          'ghanaCardNumber': _ghanaCardController.text.trim(),
-          'isVerified': false, // Vendors need to be verified
+          'isVerified': false, // Vendors need manual verification
         });
-        if (ghanaCardImageUrl != null) {
-          userData['ghanaCardImageUrl'] = ghanaCardImageUrl;
-        }
       }
 
       // Save user data to Firestore
@@ -197,6 +201,7 @@ class _SignupScreenState extends State<SignupScreen> {
                         children: [
                           Expanded(
                             child: RadioListTile<UserType>(
+                              contentPadding: EdgeInsets.zero,
                               title: const Text('User'),
                               value: UserType.user,
                               groupValue: _selectedUserType,
@@ -207,6 +212,7 @@ class _SignupScreenState extends State<SignupScreen> {
                           ),
                           Expanded(
                             child: RadioListTile<UserType>(
+                              contentPadding: EdgeInsets.zero,
                               title: const Text('Vendor'),
                               value: UserType.vendor,
                               groupValue: _selectedUserType,
@@ -307,6 +313,81 @@ class _SignupScreenState extends State<SignupScreen> {
                 },
               ),
 
+              // Ghana Card for all users for verification
+              const SizedBox(height: 24),
+              const Text(
+                'Identity Verification',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'For security purposes, we require all users to verify their identity with a Ghana Card.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _ghanaCardController,
+                decoration: const InputDecoration(
+                  labelText: 'Ghana Card Number',
+                  hintText: 'Enter your Ghana Card number',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Please enter your Ghana Card number';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Ghana Card Photo',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Upload a clear photo of your Ghana Card for verification purposes',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 8),
+                      if (_ghanaCardImage != null) ...[
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.file(
+                            _ghanaCardImage!,
+                            height: 200,
+                            width: double.infinity,
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                      ElevatedButton.icon(
+                        onPressed: _pickGhanaCardImage,
+                        icon: const Icon(Icons.upload_file, size: 20),
+                        label: Text(_ghanaCardImage == null ? 'Upload Ghana Card Photo' : 'Change Photo'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Theme.of(context).primaryColor,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              
               // Vendor Specific Fields
               if (_selectedUserType == UserType.vendor) ...[
                 const SizedBox(height: 24),
@@ -381,61 +462,6 @@ class _SignupScreenState extends State<SignupScreen> {
                     }
                     return null;
                   },
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _ghanaCardController,
-                  decoration: const InputDecoration(
-                    labelText: 'Ghana Card Number',
-                    border: OutlineInputBorder(),
-                  ),
-                  validator: (value) {
-                    if (_selectedUserType == UserType.vendor &&
-                        (value == null || value.isEmpty)) {
-                      return 'Please enter your Ghana Card number';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Ghana Card Photo',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        if (_ghanaCardImage != null) ...[
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: Image.file(
-                              _ghanaCardImage!,
-                              height: 200,
-                              width: double.infinity,
-                              fit: BoxFit.cover,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                        ],
-                        ElevatedButton.icon(
-                          onPressed: _pickGhanaCardImage,
-                          icon: const Icon(Icons.upload_file),
-                          label: Text(_ghanaCardImage == null ? 'Upload Ghana Card Photo' : 'Change Photo'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Theme.of(context).primaryColor,
-                            foregroundColor: Colors.white,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
                 ),
               ],
 

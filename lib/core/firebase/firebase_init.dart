@@ -1,24 +1,46 @@
+import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import '../../firebase_options.dart';
-import '../../services/notification_service.dart';
 
 class FirebaseInit {
+  static bool _initialized = false;
+  static bool get isInitialized => _initialized;
+
   static Future<void> initialize() async {
+    if (_initialized) return;
+    
     try {
-      await Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform,
-      );
+      WidgetsFlutterBinding.ensureInitialized();
+      
+      if (Firebase.apps.isEmpty) {
+        await Firebase.initializeApp(
+          name: 'quick-bundles',
+          options: DefaultFirebaseOptions.currentPlatform,
+        );
+      }
 
-      // Initialize notification service
-      await NotificationService().initialize();
+      // Configure Firestore with offline persistence
+      try {
+        FirebaseFirestore.instance.settings = const Settings(
+          persistenceEnabled: true,
+          cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+        );
+      } catch (e) {
+        if (kDebugMode) {
+          print('Firestore settings warning: $e');
+        }
+      }
 
+      _initialized = true;
       if (kDebugMode) {
-        print('Firebase initialized successfully');
+        print('✅ Firebase initialized successfully');
       }
     } catch (e) {
+      _initialized = false;
       if (kDebugMode) {
-        print('Failed to initialize Firebase: $e');
+        print('❌ Firebase initialization failed: $e');
       }
     }
   }

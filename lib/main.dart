@@ -13,7 +13,7 @@ import 'screens/auth_wrapper.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
+import 'services/favorites_service.dart';
 import 'core/firebase/firebase_init.dart';
 import 'features/auth/screens/login_screen.dart';
 import 'services/onesignal_service.dart';
@@ -27,10 +27,13 @@ final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterL
 Future<void> main() async {
   try {
     // Initialize Flutter bindings
-    WidgetsFlutterBinding.ensureInitialized();
-    
+  WidgetsFlutterBinding.ensureInitialized();
+
     // Load environment variables
     await dotenv.load(fileName: ".env");
+    
+    // Initialize SharedPreferences and FavoritesService
+    await FavoritesService().init();
     
     // Debug print environment variables
     if (kDebugMode) {
@@ -49,14 +52,14 @@ Future<void> main() async {
         AndroidInitializationSettings('@mipmap/ic_launcher');
     final DarwinInitializationSettings initializationSettingsIOS = 
         DarwinInitializationSettings();
-    final InitializationSettings initializationSettings = InitializationSettings(
-      android: initializationSettingsAndroid,
-      iOS: initializationSettingsIOS,
-    );
-    await flutterLocalNotificationsPlugin.initialize(initializationSettings);
+  final InitializationSettings initializationSettings = InitializationSettings(
+    android: initializationSettingsAndroid,
+    iOS: initializationSettingsIOS,
+  );
+  await flutterLocalNotificationsPlugin.initialize(initializationSettings);
 
     // Run the app
-    runApp(const MyApp());
+  runApp(const MyApp());
 
     // Initialize other services
     unawaited(_initializeNotificationsAndAds());

@@ -9,6 +9,8 @@ import 'package:firebase_storage/firebase_storage.dart';
 import '../../../services/notification_service.dart';
 import '../../../services/database_service.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter/gestures.dart';
 
 class ChatScreen extends StatefulWidget {
   final String? chatId;
@@ -182,10 +184,23 @@ class _ChatScreenState extends State<ChatScreen> {
       final now = FieldValue.serverTimestamp();
       final txId = txRef.id;
 
+      // Get buyer name from user profile
+      String buyerName = 'Buyer';
+      try {
+        final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+        if (userDoc.exists) {
+          final userData = userDoc.data() as Map<String, dynamic>?;
+          buyerName = userData?['name'] ?? userData?['businessName'] ?? 'Buyer';
+        }
+      } catch (e) {
+        debugPrint('Error getting buyer name: $e');
+      }
+
       // Create the transaction
       batch.set(txRef, {
         'id': txId,
         'userId': user.uid,
+        'buyerName': buyerName,  // Add buyer's name to transaction
         'vendorId': widget.vendorId,
         'type': 'bundle_purchase',
         'amount': _bundle!.price,
@@ -273,6 +288,78 @@ class _ChatScreenState extends State<ChatScreen> {
         );
       }
     });
+  }
+
+  // Helper method to build message text with clickable phone numbers
+  Widget _buildMessageText(String text) {
+    // Regular expression to match phone numbers in various formats
+    final phoneRegex = RegExp(
+      r'\b(?:\+?233|0)?[ -]?\(?(\d{3})\)?[ -]?(\d{3})[ -]?(\d{4})\b',
+      caseSensitive: false,
+    );
+    
+    final matches = phoneRegex.allMatches(text);
+    if (matches.isEmpty) {
+      return Text(
+        text,
+        style: const TextStyle(fontSize: 15),
+        softWrap: true,
+      );
+    }
+
+    final textSpans = <TextSpan>[];
+    int currentIndex = 0;
+    
+    for (final match in matches) {
+      // Add text before the match
+      if (match.start > currentIndex) {
+        textSpans.add(TextSpan(
+          text: text.substring(currentIndex, match.start),
+          style: const TextStyle(fontSize: 15),
+        ));
+      }
+      
+      // Add the matched phone number as clickable
+      final phoneNumber = match.group(0)!;
+      textSpans.add(TextSpan(
+        text: phoneNumber,
+        style: const TextStyle(
+          fontSize: 15,
+          color: Colors.blue,
+          decoration: TextDecoration.underline,
+        ),
+        recognizer: TapGestureRecognizer()
+          ..onTap = () async {
+            // Copy to clipboard
+            await Clipboard.setData(ClipboardData(text: phoneNumber));
+            
+            // Show feedback
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Copied to clipboard: $phoneNumber'),
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            }
+          },
+      ));
+      
+      currentIndex = match.end;
+    }
+    
+    // Add remaining text after last match
+    if (currentIndex < text.length) {
+      textSpans.add(TextSpan(
+        text: text.substring(currentIndex),
+        style: const TextStyle(fontSize: 15),
+      ));
+    }
+    
+    return RichText(
+      text: TextSpan(children: textSpans),
+      softWrap: true,
+    );
   }
 
   Future<void> _sendMessage(String message, {bool isSystem = false}) async {
@@ -763,11 +850,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                       ),
                                     ),
                                   if ((msg['text'] ?? '').isNotEmpty)
-                                    Text(
-                                      msg['text'],
-                                      style: const TextStyle(fontSize: 15),
-                                      softWrap: true,
-                                    ),
+                                    _buildMessageText(msg['text']),
                                   const SizedBox(height: 4),
                                   if (timeString.isNotEmpty)
                                     Text(

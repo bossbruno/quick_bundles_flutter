@@ -19,13 +19,27 @@ class MarketplaceScreen extends StatefulWidget {
 }
 
 class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTickerProviderStateMixin {
+  // State variables
   bool _navigatingToChat = false;
+
+  // Initialize listing repository
   final ListingRepository _listingRepository = ListingRepository();
-  NetworkProvider? _selectedProvider;
-  double? _maxPrice;
-  double? _minDataAmount;
-  int? _maxDeliveryTime;
   late TabController _tabController;
+
+  // Filter state
+  NetworkProvider? _selectedProviderFilter;
+  double? _maxPriceFilter;
+  double? _minDataAmountFilter;
+  int? _maxDeliveryTimeFilter;
+
+  // Old filter variables (keep for backward compatibility)
+  NetworkProvider? get _selectedProvider => _selectedProviderFilter;
+
+  double? get _maxPrice => _maxPriceFilter;
+
+  double? get _minDataAmount => _minDataAmountFilter;
+
+  int? get _maxDeliveryTime => _maxDeliveryTimeFilter;
 
   // --- Multi-select chat state ---
   bool _chatSelectionMode = false;
@@ -54,28 +68,28 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
       context: context,
       builder: (context) =>
           AlertDialog(
-        title: const Text('Delete Chats'),
-        content: Text(
+            title: const Text('Delete Chats'),
+            content: Text(
               'Are you sure you want to delete ${_selectedChatIds
                   .length} selected chat(s)? This will also delete all messages inside.',
               style: TextStyle(color: Theme
                   .of(context)
                   .colorScheme
                   .onSurface),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
                 style: TextButton.styleFrom(foregroundColor: Theme
                     .of(context)
                     .colorScheme
                     .primary),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete'),
-            style: ElevatedButton.styleFrom(
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Delete'),
+                style: ElevatedButton.styleFrom(
                   backgroundColor: Theme
                       .of(context)
                       .colorScheme
@@ -84,10 +98,10 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                       .of(context)
                       .colorScheme
                       .onError,
-            ),
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
     );
     if (confirm == true) {
       try {
@@ -125,13 +139,101 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this, initialIndex: 0);
+    _tabController = TabController(length: 3, vsync: this);
+    // Initialize filter values
+    _selectedProviderFilter = null;
+    _maxPriceFilter = null;
+    _minDataAmountFilter = null;
+    _maxDeliveryTimeFilter = null;
   }
 
   @override
   void dispose() {
     _tabController.dispose();
     super.dispose();
+  }
+
+  // Helper method to get status color
+  Color _getStatusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'pending':
+        return Colors.orange;
+      case 'processing':
+        return Colors.blue;
+      case 'data_sent':
+        return Colors.green;
+      case 'completed':
+        return Colors.green;
+      case 'cancelled':
+        return Colors.red;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  // Helper method to get network color
+  Color _getNetworkColor(String provider) {
+    final providerStr = provider
+        .split('.')
+        .last
+        .toUpperCase();
+    switch (providerStr) {
+      case 'MTN':
+        return const Color(0xFFFFD600);
+      case 'TELECEL':
+        return const Color(0xFFD32F2F);
+      case 'AIRTELTIGO':
+        return const Color(0xFF1976D2);
+      default:
+        return Colors.grey;
+    }
+  }
+
+  // Format time as HH:MM (24-hour format)
+  String _formatTime(DateTime? date) {
+    if (date == null) return '';
+    return '${date.hour.toString().padLeft(2, '0')}:${date.minute
+        .toString()
+        .padLeft(2, '0')}';
+  }
+
+  // Format time as HH:MM AM/PM (12-hour format)
+  String _formatTime12Hour(DateTime dt) {
+    final hour = dt.hour > 12 ? dt.hour - 12 : dt.hour == 0 ? 12 : dt.hour;
+    final ampm = dt.hour >= 12 ? 'PM' : 'AM';
+    final min = dt.minute.toString().padLeft(2, '0');
+    return '$hour:$min $ampm';
+  }
+
+  // Get month name from month number (1-12)
+  String _monthName(int month) {
+    const months = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    return months[month - 1];
+  }
+
+  // Format time as HH:MM AM/PM
+  // String _formatTime(DateTime dt) {
+  //   final hour = dt.hour > 12 ? dt.hour - 12 : dt.hour == 0 ? 12 : dt.hour;
+  //   final ampm = dt.hour >= 12 ? 'PM' : 'AM';
+  //   final min = dt.minute.toString().padLeft(2, '0');
+  //   return '$hour:$min $ampm';
+  // }
+
+  // Build a filter chip widget
+  Widget _buildFilterChip(String label, VoidCallback onDelete) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: Chip(
+        label: Text(label),
+        backgroundColor: Colors.blue[50],
+        deleteIcon: const Icon(Icons.close, size: 16),
+        onDeleted: onDelete,
+        labelStyle: const TextStyle(color: Colors.blue),
+      ),
+    );
   }
 
   void _debugNavigationState() {
@@ -158,16 +260,17 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
             : StreamBuilder<DocumentSnapshot>(
           stream: FirebaseFirestore.instance.collection('users').doc(
               currentUser.uid).snapshots(),
-                builder: (context, snapshot) {
-                  if (!snapshot.hasData || !snapshot.data!.exists) {
-                    return const Text('Marketplace');
-                  }
+          builder: (context, snapshot) {
+            if (!snapshot.hasData || !snapshot.data!.exists) {
+              return const Text('Marketplace');
+            }
             if (!snapshot.hasData || !snapshot.data!.exists) {
               return Row(
                 children: [
                   Icon(Icons.storefront_rounded, color: Colors.blue, size: 18),
                   SizedBox(width: 6),
-                  Text('Unknown Vendor', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                  Text('Unknown Vendor', style: TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w500)),
                 ],
               );
             }
@@ -177,30 +280,31 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                 children: [
                   Icon(Icons.storefront_rounded, color: Colors.blue, size: 18),
                   SizedBox(width: 6),
-                  Text('Unknown Vendor', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                  Text('Unknown Vendor', style: TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w500)),
                 ],
               );
             }
             final name = data['name'] ?? '';
             final isVerified = data['verificationStatus'] ??
                 data['isVerified'] ?? false;
-                  return Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        name.isNotEmpty ? name : 'Marketplace',
+            return Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  name.isNotEmpty ? name : 'Marketplace',
                   style: const TextStyle(
                       fontWeight: FontWeight.bold, fontSize: 20),
-                      ),
-                      const SizedBox(width: 8),
-                      if (isVerified)
-                        const Icon(Icons.verified, color: Colors.blue, size: 22),
-                      if (!isVerified)
-                        const Icon(Icons.cancel, color: Colors.red, size: 22),
-                    ],
-                  );
-                },
-              ),
+                ),
+                const SizedBox(width: 8),
+                if (isVerified)
+                  const Icon(Icons.verified, color: Colors.blue, size: 22),
+                if (!isVerified)
+                  const Icon(Icons.cancel, color: Colors.red, size: 22),
+              ],
+            );
+          },
+        ),
         actions: [
           if (_tabController.index == 1 && currentUser != null)
             if (_chatSelectionMode)
@@ -246,7 +350,8 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                   _signOut();
                 }
               },
-              itemBuilder: (BuildContext context) => [
+              itemBuilder: (BuildContext context) =>
+              [
                 const PopupMenuItem<String>(
                   value: 'profile',
                   child: Row(
@@ -432,8 +537,8 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                 : null;
             final formattedDate = completedTime != null
                 ? '${completedTime.day.toString().padLeft(2, '0')} '
-                  '${_monthName(completedTime.month)} ${completedTime.year}, '
-                  '${_formatTime(completedTime)}'
+                '${_monthName(completedTime.month)} ${completedTime.year}, '
+                '${_formatTime(completedTime)}'
                 : '';
             final vendorId = tx['vendorId'] ?? '';
             if (vendorId.isEmpty) {
@@ -441,19 +546,25 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
               return const SizedBox.shrink();
             }
             return FutureBuilder<DocumentSnapshot>(
-              future: FirebaseFirestore.instance.collection('users').doc(vendorId).get(),
+              future: FirebaseFirestore.instance.collection('users').doc(
+                  vendorId).get(),
               builder: (context, userSnap) {
                 bool isVerified = false;
                 String vendorName = 'Vendor';
                 if (userSnap.hasData && userSnap.data!.exists) {
-                  final userData = userSnap.data!.data() as Map<String, dynamic>?;
-                  isVerified = userData?['isVerified'] ?? userData?['verificationStatus'] ?? false;
-                  vendorName = userData?['businessName'] ?? userData?['name'] ?? 'Vendor';
+                  final userData = userSnap.data!.data() as Map<String,
+                      dynamic>?;
+                  isVerified = userData?['isVerified'] ??
+                      userData?['verificationStatus'] ?? false;
+                  vendorName = userData?['businessName'] ?? userData?['name'] ??
+                      'Vendor';
                 }
                 return Card(
-                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  margin: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 8),
                   elevation: 3,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
                   child: Padding(
                     padding: const EdgeInsets.all(16.0),
                     child: Column(
@@ -461,32 +572,43 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                       children: [
                         Row(
                           children: [
-                            const Icon(Icons.storefront, size: 20, color: Colors.orange),
+                            const Icon(Icons.storefront, size: 20,
+                                color: Colors.orange),
                             const SizedBox(width: 6),
                             Text(
                               vendorName,
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.bold, fontSize: 16),
                             ),
                             if (isVerified) ...[
                               const SizedBox(width: 4),
-                              Icon(Icons.verified, color: Colors.blue, size: 18),
+                              Icon(
+                                  Icons.verified, color: Colors.blue, size: 18),
                             ],
                           ],
                         ),
                         const SizedBox(height: 8),
                         Row(
                           children: [
-                            const Icon(Icons.monetization_on, size: 18, color: Colors.teal),
+                            const Icon(Icons.monetization_on, size: 18,
+                                color: Colors.teal),
                             const SizedBox(width: 4),
                             Text(
                               'GHS ${tx['amount']?.toStringAsFixed(2) ?? ''}',
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.bold, fontSize: 18),
                             ),
                             const SizedBox(width: 16),
-                            if (tx['dataAmount'] != null && tx['dataAmount'].toString().isNotEmpty) ...[
-                              const Icon(Icons.swap_vert, size: 18, color: Colors.deepPurple),
+                            if (tx['dataAmount'] != null && tx['dataAmount']
+                                .toString()
+                                .isNotEmpty) ...[
+                              const Icon(Icons.swap_vert, size: 18,
+                                  color: Colors.deepPurple),
                               const SizedBox(width: 4),
-                              Text('${tx['dataAmount']} GB', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                              Text('${tx['dataAmount']} GB',
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 18)),
                               const SizedBox(width: 16),
                             ],
                           ],
@@ -494,19 +616,25 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                         const SizedBox(height: 8),
                         Row(
                           children: [
-                            const Icon(Icons.phone_android, size: 18, color: Colors.blueGrey),
+                            const Icon(Icons.phone_android, size: 18,
+                                color: Colors.blueGrey),
                             const SizedBox(width: 4),
-                            Text('Recipient: ${tx['recipientNumber'] ?? ''}', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                            Text('Recipient: ${tx['recipientNumber'] ?? ''}',
+                                style: const TextStyle(
+                                    fontSize: 14, fontWeight: FontWeight.bold)),
                           ],
                         ),
                         const SizedBox(height: 8),
                         Row(
                           children: [
-                            const Icon(Icons.calendar_today, size: 16, color: Colors.deepPurple),
+                            const Icon(Icons.calendar_today, size: 16,
+                                color: Colors.deepPurple),
                             const SizedBox(width: 4),
                             Text(
                               formattedDate,
-                              style: const TextStyle(fontSize: 13, color: Colors.black87, fontWeight: FontWeight.w500),
+                              style: const TextStyle(fontSize: 13,
+                                  color: Colors.black87,
+                                  fontWeight: FontWeight.w500),
                             ),
                           ],
                         ),
@@ -541,8 +669,10 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
           return const Center(child: Text('No chats yet'));
         }
+
         final chats = snapshot.data!.docs;
         return ListView.builder(
+          padding: const EdgeInsets.all(16.0),
           itemCount: chats.length,
           itemBuilder: (context, index) {
             final chatDoc = chats[index];
@@ -553,22 +683,23 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
             final lastMessage = chatData['lastMessage'] ?? '';
             final lastMessageTime = chatData['lastMessageTime'] != null
                 ? (chatData['lastMessageTime'] as Timestamp).toDate()
-                : null;
+                : DateTime.now();
+            final unreadCount = chatData['unreadCount_${currentUser.uid}'] ?? 0;
             final selected = _selectedChatIds.contains(chatId);
+            final status = chatData['status'] ?? 'pending';
 
-    return FutureBuilder<DocumentSnapshot>(
+            return FutureBuilder<DocumentSnapshot>(
               future: FirebaseFirestore.instance.collection('users').doc(
                   vendorId).get(),
               builder: (context, userSnap) {
                 String vendorName = 'Vendor';
-                String? vendorAvatarUrl;
-        bool isVerified = false;
+                bool isVerified = false;
+
                 if (userSnap.hasData && userSnap.data!.exists) {
                   final userData = userSnap.data!.data() as Map<String,
                       dynamic>?;
                   vendorName = userData?['businessName'] ?? userData?['name'] ??
                       'Vendor';
-                  vendorAvatarUrl = userData?['avatarUrl'];
                   isVerified = userData?['verificationStatus'] ??
                       userData?['isVerified'] ?? false;
                 }
@@ -577,226 +708,248 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                   future: FirebaseFirestore.instance.collection('listings').doc(
                       bundleId).get(),
                   builder: (context, bundleSnap) {
-                    String bundleInfo = '';
+                    String provider = '';
+                    double dataAmount = 0.0;
                     Color networkColor = Colors.grey;
-                    IconData networkIcon = Icons.wifi;
+                    String networkLabel = '';
 
                     if (bundleSnap.hasData && bundleSnap.data!.exists) {
                       final bundleData = bundleSnap.data!.data() as Map<
-                          String, dynamic>;
+                          String,
+                          dynamic>?;
                       if (bundleData != null) {
-                        final dataAmount = bundleData['dataAmount'] ?? 0;
-                        final provider = bundleData['provider'] ?? '';
-                        final price = bundleData['price'] ?? 0;
-                        bundleInfo = '${dataAmount}GB - GHS ${price.toStringAsFixed(2)}';
-                        // Color coding for provider
-                        switch (provider) {
-                          case 'MTN':
-                            networkColor = const Color(0xFFFFB300);
-                            networkIcon = Icons.wifi;
-                            break;
-                          case 'AIRTELTIGO':
-                            networkColor = const Color(0xFF1976D2);
-                            networkIcon = Icons.wifi;
-                            break;
-                          case 'TELECEL':
-                            networkColor = const Color(0xFFD32F2F);
-                            networkIcon = Icons.wifi;
-                            break;
-                          default:
-                            networkColor = Colors.grey;
-                            networkIcon = Icons.wifi;
-                        }
+                        provider = bundleData['provider']?.toString() ?? '';
+                        dataAmount = (bundleData['dataAmount'] ?? 0.0)
+                            .toDouble();
+                        networkColor = _getNetworkColor(provider);
+                        networkLabel = provider
+                            .split('.')
+                            .last
+                            .toUpperCase();
                       }
                     }
 
                     return Card(
-                      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                      margin: const EdgeInsets.symmetric(vertical: 4),
                       elevation: 2,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      color: selected ? Color.alphaBlend(Colors.blue.withOpacity(0.1), Theme.of(context).cardColor) : null,
-                      child: ListTile(
-                        leading: _chatSelectionMode
-                            ? Checkbox(
-                                value: selected,
-                                onChanged: (_) => _toggleChatSelection(chatId),
-                              )
-                            : CircleAvatar(
-                                backgroundImage: vendorAvatarUrl != null
-                                    ? NetworkImage(vendorAvatarUrl)
-                                    : null,
-                                backgroundColor: Colors.grey[200],
-                                radius: 20,
-                                child: vendorAvatarUrl == null
-                                    ? Icon(Icons.storefront, color: networkColor, size: 20)
-                                    : null,
-                              ),
-                        title: Row(
-  crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-    // Status dot
-    Container(
-      width: 10,
-      height: 10,
-      margin: const EdgeInsets.only(right: 8),
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: () {
-          final status = chatData['status'] ?? '';
-          switch (status) {
-            case 'pending':
-              return Colors.orange;
-            case 'processing':
-              return Colors.blue;
-            case 'data_sent':
-              return Colors.green;
-            case 'completed':
-              return Colors.grey;
-            case 'cancelled':
-              return Colors.red;
-            default:
-              return Colors.grey;
-          }
-        }(),
-      ),
-    ),
-    Expanded(
-      child: Row(
-                  children: [
-                    Text(
-            vendorName,
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-            ),
-            overflow: TextOverflow.ellipsis,
-          ),
-          if (isVerified) ...[
-            const SizedBox(width: 3),
-            Icon(Icons.verified, color: Colors.blue, size: 16),
-          ],
-        ],
-      ),
-    ),
-    const SizedBox(width: 8),
-    ConstrainedBox(
-      constraints: BoxConstraints(maxWidth: 65),
-      child: Text(
-        (() {
-          final gbRaw = bundleInfo.split(' - ').first.replaceAll('GB', '').trim();
-          final gbInt = int.tryParse(double.tryParse(gbRaw)?.round().toString() ?? gbRaw) ?? gbRaw;
-          return '$gbInt GB';
-        })(),
-        style: TextStyle(
-          color: networkColor,
-          fontWeight: FontWeight.bold,
-          fontSize: 16,
-        ),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        textAlign: TextAlign.right,
-      ),
-    ),
-
-                          ]
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                                Icon(networkIcon, color: networkColor, size: 16),
-                                const SizedBox(width: 4),
-                                Text(
-                                  bundleSnap.hasData && bundleSnap.data!.exists ? (bundleSnap.data!.data() as Map<String, dynamic>)['provider'] ?? '' : '',
-                                  style: TextStyle(
-                                    color: networkColor,
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 4),
-                Row(
-                  children: [
-                    Expanded(
-                                  child: Text(
-                                    lastMessage,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(fontSize: 13),
-                                  ),
-                                ),
-                                if (lastMessageTime != null)
-                                  Padding(
-                                    padding: const EdgeInsets.only(left: 8.0),
-                                    child: Text(
-                                      _formatTime(lastMessageTime),
-                                      style: const TextStyle(
-                                        fontSize: 11,
-                                        color: Colors.grey,
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                          ],
-                        ),
-                        trailing: _chatSelectionMode
-                            ? null
-                            : StreamBuilder<QuerySnapshot>(
-                                stream: chatDoc.reference
-                                    .collection('messages')
-                                    .where('isRead', isEqualTo: false)
-                                    .where('senderId', isEqualTo: vendorId)
-                                    .snapshots(),
-                                builder: (context, unreadSnap) {
-                                  final unreadCount = unreadSnap.data?.docs.length ?? 0;
-                                  return unreadCount > 0
-                                      ? Container(
-                                          padding: const EdgeInsets.all(6),
-                                          decoration: BoxDecoration(
-                                            color: Colors.red,
-                                            borderRadius: BorderRadius.circular(10),
-                                          ),
-                                          child: Text(
-                                            unreadCount.toString(),
-                                            style: const TextStyle(
-                                                color: Colors.white, fontSize: 12),
-                                          ),
-                                        )
-                                      : const SizedBox.shrink();
-                                },
-                              ),
-                        onTap: () {
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: InkWell(
+                        onTap: () async {
+                          // Handle chat tap
                           if (_chatSelectionMode) {
                             _toggleChatSelection(chatId);
                             return;
                           }
-                          // Defensive: check if chat still exists in the snapshot
-                          final chatStillExists = chats.any((c) => c.id == chatId);
-                          if (!chatStillExists) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('This chat has been deleted.')),
-                                    );
-                                    return;
-                                  }
-                          // Navigate immediately, let ChatScreen fetch bundle
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (context) => ChatScreen(
-                                chatId: chatId,
-                                vendorId: vendorId,
-                                bundleId: bundleId,
-                                businessName: vendorName,
-                                recipientNumber: chatData['recipientNumber'] ?? '',
+                          
+                          if (_navigatingToChat) return;
+                          _navigatingToChat = true;
+                          
+                          // Get the recipient number from the chat data or use a default
+                          String recipientNumber = '';
+                          try {
+                            // Try to get recipient number from chat data if it exists
+                            if (chatData['recipientNumber'] != null) {
+                              recipientNumber = chatData['recipientNumber'];
+                            } else {
+                              // Try to get from transaction if available
+                              final txSnapshot = await FirebaseFirestore.instance
+                                  .collection('transactions')
+                                  .where('chatId', isEqualTo: chatId)
+                                  .limit(1)
+                                  .get();
+                              
+                              if (txSnapshot.docs.isNotEmpty) {
+                                recipientNumber = txSnapshot.docs.first['recipientNumber'] ?? '';
+                              }
+                            }
+                          } catch (e) {
+                            debugPrint('Error getting recipient number: $e');
+                          }
+                          
+                          if (mounted) {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => ChatScreen(
+                                  chatId: chatId,
+                                  vendorId: vendorId,
+                                  bundleId: bundleId,
+                                  businessName: vendorName,
+                                  recipientNumber: recipientNumber,
+                                ),
                               ),
-                            ),
-                          );
+                            ).then((_) {
+                              _navigatingToChat = false;
+                            });
+                          } else {
+                            _navigatingToChat = false;
+                          }
                         },
-                        onLongPress: !_chatSelectionMode ? () => _toggleChatSelectionMode(true) : null,
+                        onLongPress: () {
+                          if (!_chatSelectionMode) {
+                            _toggleChatSelectionMode(true);
+                            _toggleChatSelection(chatId);
+                          }
+                        },
+                        borderRadius: BorderRadius.circular(12),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Row(
+                            children: [
+                              // Selection checkbox or status + icon
+                              if (_chatSelectionMode) ...[
+                                Checkbox(
+                                  value: selected,
+                                  onChanged: (_) =>
+                                      _toggleChatSelection(chatId),
+                                ),
+                              ] else
+                                ...[
+                                  Column(
+                                    children: [
+                                      // Status dot
+                                      Container(
+                                        width: 12,
+                                        height: 12,
+                                        margin: const EdgeInsets.only(
+                                            bottom: 8),
+                                        decoration: BoxDecoration(
+                                          color: _getStatusColor(status),
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                      // Network icon
+                                      Container(
+                                        width: 40,
+                                        height: 40,
+                                        decoration: BoxDecoration(
+                                          color: networkColor.withOpacity(0.2),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: Icon(
+                                          Icons.message,
+                                          color: networkColor,
+                                          size: 20,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              const SizedBox(width: 12),
+                              // Main content
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    // Vendor name with verification
+                                    Row(
+                                      children: [
+                                        Flexible(
+                                          child: Text(
+                                            vendorName,
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 16,
+                                            ),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        if (isVerified) ...[
+                                          const SizedBox(width: 4),
+                                          const Icon(Icons.verified,
+                                              color: Colors.blue, size: 16),
+                                        ],
+                                      ],
+                                    ),
+                                    const SizedBox(height: 4),
+                                    // Last message preview
+                                    Text(
+                                      lastMessage,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: Colors.grey[600],
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              // Right side - network and data amount
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  // Network pill
+                                  if (networkLabel.isNotEmpty) ...[
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 3),
+                                      decoration: BoxDecoration(
+                                        color: networkColor,
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: Text(
+                                        networkLabel,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                  ],
+                                  // Data amount
+                                  Text(
+                                    '${dataAmount.toStringAsFixed(
+                                        dataAmount.truncateToDouble() ==
+                                            dataAmount ? 0 : 1)}GB',
+                                    style: TextStyle(
+                                      color: networkColor,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16, // Larger text as requested
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  // Time and unread counter
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        _formatTime(lastMessageTime),
+                                        style: TextStyle(
+                                          color: Colors.grey[500],
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                      if (unreadCount > 0) ...[
+                                        const SizedBox(width: 4),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 6, vertical: 2),
+                                          decoration: const BoxDecoration(
+                                            color: Colors.blue,
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: Text(
+                                            unreadCount.toString(),
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     );
                   },
@@ -809,119 +962,123 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
     );
   }
 
-  String _monthName(int month) {
-    const months = [
-      '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-    ];
-    return months[month];
-  }
-
-  String _formatTime(DateTime dt) {
-    final hour = dt.hour > 12 ? dt.hour - 12 : dt.hour == 0 ? 12 : dt.hour;
-    final ampm = dt.hour >= 12 ? 'PM' : 'AM';
-    final min = dt.minute.toString().padLeft(2, '0');
-    return '$hour:$min $ampm';
-  }
-
-  Widget _buildFilterChip(String label, VoidCallback onDelete) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: Chip(
-        label: Text(label),
-        deleteIcon: const Icon(Icons.close, size: 18),
-        onDeleted: onDelete,
-      ),
-    );
-  }
 
   void _showFilterDialog() {
+    // Store current filter values in local variables
+    NetworkProvider? selectedProvider = _selectedProviderFilter;
+    double maxPrice = _maxPriceFilter ?? 100.0;
+    double minDataAmount = _minDataAmountFilter ?? 0.0;
+    int maxDeliveryTime = _maxDeliveryTimeFilter ?? 60;
+
     showDialog(
       context: context,
-      builder: (context) =>
-          AlertDialog(
-        title: const Text('Filter Listings'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Provider dropdown
-              DropdownButtonFormField<NetworkProvider>(
-                value: _selectedProvider,
-                    decoration: const InputDecoration(
-                        labelText: 'Network Provider'),
-                items: NetworkProvider.values.map((provider) {
-                  return DropdownMenuItem(
-                    value: provider,
-                        child: Text(provider
-                            .toString()
-                            .split('.')
-                            .last),
-                  );
-                }).toList(),
-                    onChanged: (value) =>
-                        setState(() => _selectedProvider = value),
-              ),
+      builder: (BuildContext dialogContext) {
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setDialogState) {
+            return AlertDialog(
+              title: const Text('Filter Listings'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Provider dropdown
+                    DropdownButtonFormField<NetworkProvider>(
+                      value: selectedProvider,
+                      decoration: const InputDecoration(
+                        labelText: 'Network Provider',
+                      ),
+                      items: NetworkProvider.values.map((provider) {
+                        return DropdownMenuItem(
+                          value: provider,
+                          child: Text(
+                            provider
+                                .toString()
+                                .split('.')
+                                .last,
+                          ),
+                        );
+                      }).toList(),
+                      onChanged: (NetworkProvider? value) {
+                        setDialogState(() {
+                          selectedProvider = value;
+                        });
+                      },
+                    ),
 
-              // Max price slider
-              const SizedBox(height: 16),
-              const Text('Maximum Price (GH₵)'),
-              Slider(
-                value: _maxPrice ?? 100,
-                min: 0,
-                max: 100,
-                divisions: 20,
-                label: 'GH₵${(_maxPrice ?? 100).toStringAsFixed(2)}',
-                onChanged: (value) => setState(() => _maxPrice = value),
-              ),
+                    // Max price slider
+                    const SizedBox(height: 16),
+                    const Text('Maximum Price (GH₵)'),
+                    Slider(
+                      value: maxPrice,
+                      min: 0,
+                      max: 100,
+                      divisions: 20,
+                      label: 'GH₵${maxPrice.toStringAsFixed(2)}',
+                      onChanged: (double value) {
+                        setDialogState(() {
+                          maxPrice = value;
+                        });
+                      },
+                    ),
 
-              // Min data amount slider
-              const SizedBox(height: 16),
-              const Text('Minimum Data Amount (GB)'),
-              Slider(
-                value: _minDataAmount ?? 0,
-                min: 0,
-                max: 50,
-                divisions: 50,
-                label: '${(_minDataAmount ?? 0).toStringAsFixed(1)}GB',
-                    onChanged: (value) =>
-                        setState(() => _minDataAmount = value),
-              ),
+                    // Min data amount slider
+                    const SizedBox(height: 16),
+                    const Text('Minimum Data Amount (GB)'),
+                    Slider(
+                      value: minDataAmount,
+                      min: 0,
+                      max: 50,
+                      divisions: 50,
+                      label: '${minDataAmount.toStringAsFixed(1)}GB',
+                      onChanged: (double value) {
+                        setDialogState(() {
+                          minDataAmount = value;
+                        });
+                      },
+                    ),
 
-              // Max delivery time slider
-              const SizedBox(height: 16),
-              const Text('Maximum Delivery Time (minutes)'),
-              Slider(
-                value: _maxDeliveryTime?.toDouble() ?? 60,
-                min: 0,
-                max: 120,
-                divisions: 12,
-                label: '${(_maxDeliveryTime ?? 60)}min',
-                    onChanged: (value) =>
-                        setState(() => _maxDeliveryTime = value.round()),
+                    // Max delivery time slider
+                    const SizedBox(height: 16),
+                    const Text('Maximum Delivery Time (minutes)'),
+                    Slider(
+                      value: maxDeliveryTime.toDouble(),
+                      min: 0,
+                      max: 120,
+                      divisions: 24,
+                      label: '$maxDeliveryTime min',
+                      onChanged: (double value) {
+                        setDialogState(() {
+                          maxDeliveryTime = value.toInt();
+                        });
+                      },
+                    ),
+                  ],
+                ),
               ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              setState(() {
-                _selectedProvider = null;
-                _maxPrice = null;
-                _minDataAmount = null;
-                _maxDeliveryTime = null;
-              });
-              Navigator.pop(context);
-            },
-            child: const Text('Clear All'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Apply'),
-          ),
-        ],
-      ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('CANCEL'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    if (mounted) {
+                      setState(() {
+                        _selectedProviderFilter = selectedProvider;
+                        _maxPriceFilter = maxPrice;
+                        _minDataAmountFilter = minDataAmount;
+                        _maxDeliveryTimeFilter = maxDeliveryTime;
+                      });
+                    }
+                    Navigator.pop(dialogContext);
+                  },
+                  child: const Text('APPLY'),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
@@ -941,7 +1098,8 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
               // Network filter
               Expanded(
                 child: DropdownButtonFormField<NetworkProvider>(
-                  value: _selectedProvider,
+                  isExpanded: true,
+                  value: _selectedProviderFilter,
                   decoration: const InputDecoration(
                     labelText: 'Network',
                     border: OutlineInputBorder(),
@@ -952,26 +1110,34 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                   items: [
                     const DropdownMenuItem<NetworkProvider>(
                       value: null,
-                      child: Text('All Networks'),
+                      child: Text(
+                        'All Networks',
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                     ...NetworkProvider.values.map((provider) =>
                         DropdownMenuItem(
                           value: provider,
-                          child: Text(provider
-                              .toString()
-                              .split('.')
-                              .last),
+                          child: Text(
+                            provider.toString().split('.').last,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         )),
                   ],
-                  onChanged: (value) =>
-                      setState(() => _selectedProvider = value),
+                  onChanged: (NetworkProvider? value) {
+                    if (mounted) {
+                      setState(() {
+                        _selectedProviderFilter = value;
+                      });
+                    }
+                  },
                 ),
               ),
               const SizedBox(width: 12),
               // Bundle size filter
               Expanded(
                 child: DropdownButtonFormField<double>(
-                  value: _minDataAmount,
+                  value: _minDataAmountFilter,
                   decoration: const InputDecoration(
                     labelText: 'Min Size (GB)',
                     border: OutlineInputBorder(),
@@ -991,18 +1157,34 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                               .toInt()} GB' : '$size GB'),
                         )),
                   ],
-                  onChanged: (value) => setState(() => _minDataAmount = value),
+                  onChanged: (double? value) {
+                    if (mounted) {
+                      setState(() {
+                        _minDataAmountFilter = value;
+                      });
+                    }
+                  },
                 ),
+              ),
+              // Advanced filter button
+              IconButton(
+                icon: const Icon(Icons.filter_alt, color: Colors.blue),
+                tooltip: 'Advanced Filters',
+                onPressed: _showFilterDialog,
               ),
               // Clear filters button
               IconButton(
                 icon: const Icon(Icons.filter_alt_off, color: Colors.redAccent),
                 tooltip: 'Clear Filters',
                 onPressed: () {
-                  setState(() {
-                    _selectedProvider = null;
-                    _minDataAmount = null;
-                  });
+                  if (mounted) {
+                    setState(() {
+                      _selectedProviderFilter = null;
+                      _minDataAmountFilter = null;
+                      _maxPriceFilter = null;
+                      _maxDeliveryTimeFilter = null;
+                    });
+                  }
                 },
               ),
             ],
@@ -1038,7 +1220,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                   final listing = featuredBundles[i];
                   return SizedBox(
                     width: 260,
-                    child: _buildFeaturedBundleCard(listing),
+                    child: _buildFeaturedBundleCard(context, listing),
                   );
                 },
               ),
@@ -1048,7 +1230,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
         // All Bundles Grid View
         Expanded(
           child: StreamBuilder<List<BundleListing>>(
-            stream: _listingRepository.getAllListings(),
+            stream: _listingRepository.getActiveListings(),
             builder: (context, snapshot) {
               if (snapshot.hasError) {
                 return Center(child: Text('Error: ${snapshot.error}'));
@@ -1058,17 +1240,26 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
               }
               // Apply filters
               List<BundleListing> listings = snapshot.data!;
-              if (_selectedProvider != null) {
-                listings =
-                    listings
-                        .where((l) => l.provider == _selectedProvider)
-                        .toList();
+              if (_selectedProviderFilter != null) {
+                listings = listings
+                    .where((l) => l.provider == _selectedProviderFilter)
+                    .toList();
               }
-              if (_minDataAmount != null) {
-                listings =
-                    listings
-                        .where((l) => l.dataAmount >= _minDataAmount!)
-                        .toList();
+              if (_minDataAmountFilter != null) {
+                listings = listings
+                    .where((l) => l.dataAmount >= _minDataAmountFilter!)
+                    .toList();
+              }
+              if (_maxPriceFilter != null) {
+                listings = listings
+                    .where((l) => l.price <= _maxPriceFilter!)
+                    .toList();
+              }
+              if (_maxDeliveryTimeFilter != null) {
+                listings = listings
+                    .where((l) =>
+                l.estimatedDeliveryTime <= _maxDeliveryTimeFilter!)
+                    .toList();
               }
               if (listings.isEmpty) {
                 return const Center(
@@ -1080,7 +1271,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                 itemCount: listings.length,
                 itemBuilder: (context, index) {
                   final listing = listings[index];
-                  return _buildGridBundleCard(listing);
+                  return _buildGridBundleCard(context, listing);
                 },
               );
             },
@@ -1091,19 +1282,19 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
   }
 
   // --- Featured Card Widget ---
-  Widget _buildFeaturedBundleCard(BundleListing listing) {
+  Widget _buildFeaturedBundleCard(BuildContext context, BundleListing listing) {
     Color networkColor;
     switch (listing.provider.toString().toUpperCase()) {
       case 'NETWORKPROVIDER.MTN':
         networkColor = Color(0xFFFBC02D); // Yellow
-                          break;
+        break;
       case 'NETWORKPROVIDER.TELECEL':
         networkColor = Color(0xFFD32F2F); // Red
-                          break;
+        break;
       case 'NETWORKPROVIDER.AIRTELTIGO':
         networkColor = Color(0xFF1976D2); // Blue
-                          break;
-                        default:
+        break;
+      default:
         networkColor = Colors.grey;
     }
     return Builder(
@@ -1130,26 +1321,375 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                       overflow: TextOverflow.ellipsis),
                   const SizedBox(height: 12),
                   Column(
-  crossAxisAlignment: CrossAxisAlignment.stretch,
-  children: [
-    Text('Delivery: ~${listing.estimatedDeliveryTime}min',
-        style: const TextStyle(fontSize: 13)),
-    const SizedBox(height: 10),
-    SizedBox(
-      width: double.infinity,
-      child: ElevatedButton(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: networkColor,
-          foregroundColor: Colors.white,
-          minimumSize: const Size.fromHeight(54),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
-        ),
-        onPressed: () async {
-                          final recipientController = TextEditingController();
-                          final result = await showDialog<String>(
-                            context: context,
-                            builder: (context) => AlertDialog(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text('Delivery: ~${listing.estimatedDeliveryTime}min',
+                          style: const TextStyle(fontSize: 13)),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: networkColor,
+                            foregroundColor: Colors.white,
+                            minimumSize: const Size.fromHeight(54),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(20)),
+                            textStyle: const TextStyle(fontWeight: FontWeight
+                                .bold, fontSize: 20),
+                          ),
+                          onPressed: () async {
+                            final recipientController = TextEditingController();
+                            final result = await showDialog<String>(
+                              context: context,
+                              builder: (context) =>
+                                  AlertDialog(
+                                    title: const Text('Enter Recipient Number'),
+                                    content: TextField(
+                                      controller: recipientController,
+                                      keyboardType: TextInputType.phone,
+                                      inputFormatters: [
+                                        FilteringTextInputFormatter.digitsOnly,
+                                        LengthLimitingTextInputFormatter(10),
+                                      ],
+                                      decoration: const InputDecoration(
+                                        labelText: 'Recipient Number',
+                                        hintText: 'e.g. 024XXXXXXX',
+                                      ),
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(context),
+                                        child: const Text('Cancel',
+                                            style: TextStyle(
+                                                color: Colors.black)),
+                                      ),
+                                      ElevatedButton(
+                                        onPressed: () {
+                                          final number = recipientController
+                                              .text.trim();
+                                          if (number.length != 10) {
+                                            ScaffoldMessenger
+                                                .of(context)
+                                                .showSnackBar(
+                                              const SnackBar(content: Text(
+                                                  'Please enter a valid 10-digit recipient number')),
+                                            );
+                                            return;
+                                          }
+                                          Navigator.pop(context, number);
+                                        },
+                                        style: ElevatedButton.styleFrom(
+                                            foregroundColor: Colors.black),
+                                        child: const Text('Continue',
+                                            style: TextStyle(
+                                                color: Colors.black)),
+                                      ),
+                                    ],
+                                  ),
+                            );
+                            if (result != null && result.isNotEmpty) {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) =>
+                                      ChatScreen(
+                                        chatId: '',
+                                        // No chatId for new purchase
+                                        vendorId: listing.vendorId,
+                                        bundleId: listing.id,
+                                        businessName: listing.vendorId ?? '',
+                                        recipientNumber: result,
+                                      ),
+                                ),
+                              );
+                            }
+                          },
+                          child: const Text('Buy'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+          ),
+    );
+  }
+
+  Widget _buildGridBundleCard(BuildContext context, BundleListing listing) {
+    Color networkColor;
+    switch (listing.provider.toString().toUpperCase()) {
+      case 'NETWORKPROVIDER.MTN':
+        networkColor = Color(0xFFFBC02D); // Yellow
+        break;
+      case 'NETWORKPROVIDER.TELECEL':
+        networkColor = Color(0xFFD32F2F); // Red
+        break;
+      case 'NETWORKPROVIDER.AIRTELTIGO':
+        networkColor = Color(0xFF1976D2); // Blue
+        break;
+      default:
+        networkColor = Colors.grey;
+    }
+    return Card(
+      elevation: 4,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) =>
+                              UpdatedVendorProfileScreen(
+                                  vendorId: listing.vendorId),
+                        ),
+                      );
+                    },
+                    child: CircleAvatar(
+                      backgroundColor: Colors.grey[200],
+                      radius: 24,
+                      child: Icon(
+                          Icons.storefront, color: networkColor, size: 24),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Flexible(
+                              child: FutureBuilder<DocumentSnapshot>(
+                                future: FirebaseFirestore.instance.collection(
+                                    'users').doc(listing.vendorId).get(),
+                                builder: (context, snapshot) {
+                                  String businessName = 'Vendor';
+                                  bool isVerified = false;
+                                  if (snapshot.hasData &&
+                                      snapshot.data!.exists) {
+                                    final data = snapshot.data!.data() as Map<
+                                        String,
+                                        dynamic>?;
+                                    businessName = data?['businessName'] ??
+                                        data?['name'] ?? 'Vendor';
+                                    isVerified = data?['isVerified'] == true ||
+                                        data?['verificationStatus'] == true;
+                                  }
+                                  // Network pill color and label
+                                  Color pillColor;
+                                  String networkLabel;
+                                  switch (listing.provider) {
+                                    case NetworkProvider.MTN:
+                                      pillColor = Color(0xFFFBC02D);
+                                      networkLabel = 'MTN';
+                                      break;
+                                    case NetworkProvider.TELECEL:
+                                      pillColor = Color(0xFFD32F2F);
+                                      networkLabel = 'Telecel';
+                                      break;
+                                    case NetworkProvider.AIRTELTIGO:
+                                      pillColor = Color(0xFF1976D2);
+                                      networkLabel = 'AirtelTigo';
+                                      break;
+                                    default:
+                                      pillColor = Colors.grey;
+                                      networkLabel = 'Unknown';
+                                  }
+                                  return Column(
+                                    crossAxisAlignment: CrossAxisAlignment
+                                        .start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: GestureDetector(
+                                              onTap: () {
+                                                Navigator.push(
+                                                  context,
+                                                  MaterialPageRoute(
+                                                    builder: (context) =>
+                                                        UpdatedVendorProfileScreen(
+                                                            vendorId: listing
+                                                                .vendorId),
+                                                  ),
+                                                );
+                                              },
+                                              child: Row(
+                                                children: [
+                                                  Flexible(
+                                                    child: Text(
+                                                      businessName,
+                                                      style: const TextStyle(
+                                                          fontWeight: FontWeight
+                                                              .bold,
+                                                          fontSize: 16),
+                                                      overflow: TextOverflow
+                                                          .ellipsis,
+                                                      maxLines: 1,
+                                                    ),
+                                                  ),
+                                                  if (isVerified) const SizedBox(
+                                                      width: 4),
+                                                  if (isVerified) const Icon(
+                                                      Icons.verified,
+                                                      color: Colors.blue,
+                                                      size: 16),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                          if (!isVerified) ...[
+                                            const SizedBox(width: 4),
+                                            const SizedBox(width: 16),
+                                            // Placeholder for when verified icon isn't shown to maintain consistent spacing
+                                          ],
+                                        ],
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: pillColor,
+                                          borderRadius: BorderRadius.circular(
+                                              6),
+                                        ),
+                                        child: Text(
+                                          networkLabel,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                        // Network label row (remove for now, will add pill later)
+                      ],
+                    ),
+                  ),
+                  Align(
+                    alignment: Alignment.topRight,
+                    child: SizedBox(
+                      width: 90,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: networkColor.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Text(
+                              '${listing.dataAmount}GB',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                                color: networkColor,
+                              ),
+                            ),
+                          ),
+
+                          const SizedBox(height: 6),
+                          Text(
+                            'GHS ${listing.price.toStringAsFixed(2)}',
+                            style: const TextStyle(fontWeight: FontWeight.bold,
+                                fontSize: 14),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(listing.description, style: const TextStyle(fontSize: 15),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 2),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Icon(Icons.payments, size: 18),
+                  const SizedBox(width: 4),
+                  Text(
+                    listing.paymentMethods.entries
+                        .where((e) => e.value == true)
+                        .map((e) => e.key.toUpperCase())
+                        .join(', '),
+                    style: const TextStyle(fontWeight: FontWeight.w500),
+                  ),
+                ],
+              ),
+              if (listing.estimatedDeliveryTime > 0 ||
+                  (listing.availableStock ?? 0) > 0)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Row(
+                    children: [
+                      if (listing.estimatedDeliveryTime > 0) ...[
+                        const Icon(Icons.timer, size: 16),
+                        const SizedBox(width: 2),
+                        Text('${listing.estimatedDeliveryTime} min delivery'),
+                        const SizedBox(width: 12),
+                      ],
+                      if ((listing.availableStock ?? 0) > 0) ...[
+                        const Icon(Icons.inventory_2, size: 16),
+                        const SizedBox(width: 2),
+                        Text('Stock: ${listing.availableStock}'),
+                      ],
+                    ],
+                  ),
+                ),
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.bottomRight,
+                child: SizedBox(
+                  height: 36, // Reduced height
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.shopping_cart, size: 16),
+                    // Add cart icon
+                    label: const Text('Buy Now', style: TextStyle(
+                        fontSize: 14, fontWeight: FontWeight.bold)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: networkColor,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 4),
+                      minimumSize: const Size(0, 0),
+                      // Allow button to be smaller
+                      tapTargetSize: MaterialTapTargetSize
+                          .shrinkWrap, // Make touch target fit content
+                    ),
+                    onPressed: () async {
+                      final recipientController = TextEditingController();
+                      final result = await showDialog<String>(
+                        context: context,
+                        builder: (context) =>
+                            AlertDialog(
                               title: const Text('Enter Recipient Number'),
                               content: TextField(
                                 controller: recipientController,
@@ -1167,13 +1707,12 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                                 TextButton(
                                   onPressed: () => Navigator.pop(context),
                                   child: const Text('Cancel',
-                                      style: TextStyle(
-                                          color: Colors.black)),
+                                      style: TextStyle(color: Colors.black)),
                                 ),
                                 ElevatedButton(
                                   onPressed: () {
-                                    final number = recipientController
-                                        .text.trim();
+                                    final number = recipientController.text
+                                        .trim();
                                     if (number.length != 10) {
                                       ScaffoldMessenger
                                           .of(context)
@@ -1188,326 +1727,34 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                                   style: ElevatedButton.styleFrom(
                                       foregroundColor: Colors.black),
                                   child: const Text('Continue',
-                                      style: TextStyle(
-                                          color: Colors.black)),
+                                      style: TextStyle(color: Colors.black)),
                                 ),
                               ],
                             ),
-                          );
-                          if (result != null && result.isNotEmpty) {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) =>
-                                    ChatScreen(
-                                      chatId: '',
-                                      // No chatId for new purchase
-                                      vendorId: listing.vendorId,
-                                      bundleId: listing.id,
-                                      businessName: listing.vendorId ?? '',
-                                      recipientNumber: result,
-                                    ),
-                              ),
-                              );
-                            }
-                          },
-                          child: const Text('Buy'),
-                        ),
-                      ),
-                    ],
-                    ),
-                  ],
-                ),
-              ),
-
-            ),
-      );
-    }
-
-    Widget _buildGridBundleCard(BundleListing listing) {
-  Color networkColor;
-  switch (listing.provider.toString().toUpperCase()) {
-    case 'NETWORKPROVIDER.MTN':
-      networkColor = Color(0xFFFBC02D); // Yellow
-      break;
-    case 'NETWORKPROVIDER.TELECEL':
-      networkColor = Color(0xFFD32F2F); // Red
-      break;
-    case 'NETWORKPROVIDER.AIRTELTIGO':
-      networkColor = Color(0xFF1976D2); // Blue
-      break;
-    default:
-      networkColor = Colors.grey;
-  }
-                      return Card(
-                        elevation: 4,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-  margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  GestureDetector(
-                                    onTap: () {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (context) => UpdatedVendorProfileScreen(vendorId: listing.vendorId),
-                                        ),
-                                      );
-                                    },
-                                    child: CircleAvatar(
-                                      backgroundColor: Colors.grey[200],
-                                      radius: 24,
-    child: Icon(Icons.storefront, color: networkColor, size: 24),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            Flexible(
-  child: FutureBuilder<DocumentSnapshot>(
-    future: FirebaseFirestore.instance.collection('users').doc(listing.vendorId).get(),
-    builder: (context, snapshot) {
-      String businessName = 'Vendor';
-      bool isVerified = false;
-      if (snapshot.hasData && snapshot.data!.exists) {
-        final data = snapshot.data!.data() as Map<String, dynamic>?;
-        businessName = data?['businessName'] ?? data?['name'] ?? 'Vendor';
-        isVerified = data?['isVerified'] == true || data?['verificationStatus'] == true;
-      }
-      // Network pill color and label
-      Color pillColor;
-      String networkLabel;
-      switch (listing.provider) {
-        case NetworkProvider.MTN:
-          pillColor = Color(0xFFFBC02D);
-          networkLabel = 'MTN';
-          break;
-        case NetworkProvider.TELECEL:
-          pillColor = Color(0xFFD32F2F);
-          networkLabel = 'Telecel';
-          break;
-        case NetworkProvider.AIRTELTIGO:
-          pillColor = Color(0xFF1976D2);
-          networkLabel = 'AirtelTigo';
-          break;
-        default:
-          pillColor = Colors.grey;
-          networkLabel = 'Unknown';
-      }
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-  children: [
-    GestureDetector(
-                                                onTap: () {
-                                                  Navigator.push(
-                                                    context,
-                                                    MaterialPageRoute(
-                                                      builder: (context) => UpdatedVendorProfileScreen(vendorId: listing.vendorId),
-                                                    ),
-                                                  );
-                                                },
-                                                child: Text(
-        businessName,
-                                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                                                  overflow: TextOverflow.ellipsis,
-                                                  maxLines: 1,
-                                              ),
-                                            ),
-                                            if (isVerified) ...[
-      const SizedBox(width: 2),
-      Icon(Icons.verified, color: Colors.blue, size: 16),
-                                            ],
-                                          ],
-                                        ),
-          const SizedBox(height: 4),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: pillColor,
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Text(
-              networkLabel,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 13,
-              ),
-            ),
-          ),
-        ],
-      );
-    },
-  ),
-                                        ),
-                                      ],
-                                    ),
-                  // Network label row (remove for now, will add pill later)
-                ],
-              ),
-            ),
-            Align(
-  alignment: Alignment.topRight,
-  child: SizedBox(
-    width: 90,
-    child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.end,
-      mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                        decoration: BoxDecoration(
-                      color: networkColor.withOpacity(0.12),
-                                          borderRadius: BorderRadius.circular(16),
-                                        ),
-                                        child: Text(
-                                          '${listing.dataAmount}GB',
-  style: TextStyle(
-                                            fontWeight: FontWeight.bold,
-    fontSize: 16,
-    color: networkColor,
-                                          ),
-                                        ),
-                                      ),
-                  
-                                      const SizedBox(height: 6),
-                                      Text(
-                                        'GHS ${listing.price.toStringAsFixed(2)}',
-  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                                      ),
-                                    ],
-                                  ),
-            ),
-            )
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-        Text(listing.description, style: const TextStyle(fontSize: 15), overflow: TextOverflow.ellipsis, maxLines: 2),
-                              const SizedBox(height: 8),
-                              Row(
-                                children: [
-                                  const Icon(Icons.payments, size: 18),
-                                  const SizedBox(width: 4),
-            Text(
-              listing.paymentMethods.entries
-                  .where((e) => e.value == true)
-                  .map((e) => e.key.toUpperCase())
-                  .join(', '),
-              style: const TextStyle(fontWeight: FontWeight.w500),
-            ),
-          ],
-        ),
-        if (listing.estimatedDeliveryTime > 0 || (listing.availableStock ?? 0) > 0)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 6),
-                                  child: Row(
-                                    children: [
-                                      if (listing.estimatedDeliveryTime > 0) ...[
-                                        const Icon(Icons.timer, size: 16),
-                                        const SizedBox(width: 2),
-                                        Text('${listing.estimatedDeliveryTime} min delivery'),
-                                        const SizedBox(width: 12),
-                                      ],
-                if ((listing.availableStock ?? 0) > 0) ...[
-                                        const Icon(Icons.inventory_2, size: 16),
-                                        const SizedBox(width: 2),
-                                        Text('Stock: ${listing.availableStock}'),
-                                      ],
-                                    ],
-                                  ),
-                                ),
-                              const SizedBox(height: 10),
-                              Align(
-          alignment: Alignment.bottomRight,
-          child: SizedBox(
-            height: 36, // Reduced height
-            child: ElevatedButton.icon(
-              icon: const Icon(Icons.shopping_cart, size: 16), // Add cart icon
-              label: const Text('Buy Now', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: networkColor,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                minimumSize: const Size(0, 0), // Allow button to be smaller
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap, // Make touch target fit content
-              ),
-                                  onPressed: () async {
-                                    final recipientController = TextEditingController();
-                                    final result = await showDialog<String>(
-                                      context: context,
-                                      builder: (context) => AlertDialog(
-                                        title: const Text('Enter Recipient Number'),
-                                        content: TextField(
-                                          controller: recipientController,
-                                          keyboardType: TextInputType.phone,
-                                          inputFormatters: [
-                                            FilteringTextInputFormatter.digitsOnly,
-                                            LengthLimitingTextInputFormatter(10),
-                                          ],
-                                          decoration: const InputDecoration(
-                                            labelText: 'Recipient Number',
-                                            hintText: 'e.g. 024XXXXXXX',
-                                          ),
-                                        ),
-                                        actions: [
-                                          TextButton(
-                                            onPressed: () => Navigator.pop(context),
-                                            child: const Text('Cancel', style: TextStyle(color: Colors.black)),
-                                          ),
-                                          ElevatedButton(
-                                            onPressed: () {
-                                              final number = recipientController.text.trim();
-                                              if (number.length != 10) {
-                                                ScaffoldMessenger.of(context).showSnackBar(
-                                                  const SnackBar(content: Text('Please enter a valid 10-digit recipient number')),
-                                                );
-                                                return;
-                                              }
-                                              Navigator.pop(context, number);
-                                            },
-                                            style: ElevatedButton.styleFrom(foregroundColor: Colors.black),
-                                            child: const Text('Continue', style: TextStyle(color: Colors.black)),
-                                          ),
-                                        ],
-                                      ),
-                                    );
-                                    if (result != null && result.isNotEmpty) {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (context) => ChatScreen(
-                        chatId: '',
-                                            vendorId: listing.vendorId,
-                        bundleId: listing.id,
-                        businessName: listing.vendorId ?? '',
-                                            recipientNumber: result,
-                                          ),
-                                        ),
-                  );
-                }
-              },
-                                  ),
-                                ),
-                              ),
-    ]
-                          ),
-                        ),
                       );
+                      if (result != null && result.isNotEmpty) {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                ChatScreen(
+                                  chatId: '',
+                                  vendorId: listing.vendorId,
+                                  bundleId: listing.id,
+                                  businessName: listing.vendorId ?? '',
+                                  recipientNumber: result,
+                                ),
+                          ),
+                        );
+                      }
+                    },
+                  ),
+                ),
+              ),
+            ]
+        ),
+      ),
+    );
 
 //                       // Vendor name and shop icon
 //                       FutureBuilder<DocumentSnapshot>(
@@ -1707,10 +1954,9 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
 //               ),
 //             ),
 //       );
-    }
+  }
 
-    Future<int> _getTotalUnreadCount(
-        List<QueryDocumentSnapshot> chatDocs) async {
+  Future<int> _getTotalUnreadCount(List<QueryDocumentSnapshot> chatDocs) async {
     int total = 0;
     for (var chatDoc in chatDocs) {
       final vendorId = chatDoc['vendorId'];
@@ -1723,6 +1969,6 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
     }
     return total;
   }
-
 }
+
 
