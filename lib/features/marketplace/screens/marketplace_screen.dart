@@ -7,8 +7,11 @@ import '../../chat/screens/chat_screen.dart' show ChatScreen;
 import 'dart:async';
 import 'package:google_fonts/google_fonts.dart';
 import '../../vendor/screens/updated_vendor_profile_screen.dart';
+import 'vendor_detail_screen.dart';
 import '../../auth/screens/buyer_profile_screen.dart';
 import 'package:flutter/services.dart';
+import 'vendor_detail_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 
 class MarketplaceScreen extends StatefulWidget {
@@ -44,6 +47,14 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
   // --- Multi-select chat state ---
   bool _chatSelectionMode = false;
   Set<String> _selectedChatIds = {};
+  // Transactions badge tracking
+  DateTime? _txLastViewedAt;
+
+  // --- Marketplace UX enhancements ---
+  final TextEditingController _searchController = TextEditingController();
+  Timer? _searchDebounce;
+  String _searchQuery = '';
+  int _vendorDisplayLimit = 20;
 
   void _toggleChatSelectionMode([bool? value]) {
     setState(() {
@@ -68,28 +79,28 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
       context: context,
       builder: (context) =>
           AlertDialog(
-            title: const Text('Delete Chats'),
-            content: Text(
+        title: const Text('Delete Chats'),
+        content: Text(
               'Are you sure you want to delete ${_selectedChatIds
                   .length} selected chat(s)? This will also delete all messages inside.',
               style: TextStyle(color: Theme
                   .of(context)
                   .colorScheme
                   .onSurface),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('Cancel'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
                 style: TextButton.styleFrom(foregroundColor: Theme
                     .of(context)
                     .colorScheme
                     .primary),
-              ),
-              ElevatedButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('Delete'),
-                style: ElevatedButton.styleFrom(
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+            style: ElevatedButton.styleFrom(
                   backgroundColor: Theme
                       .of(context)
                       .colorScheme
@@ -98,10 +109,10 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                       .of(context)
                       .colorScheme
                       .onError,
-                ),
-              ),
-            ],
+            ),
           ),
+        ],
+      ),
     );
     if (confirm == true) {
       try {
@@ -145,12 +156,43 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
     _maxPriceFilter = null;
     _minDataAmountFilter = null;
     _maxDeliveryTimeFilter = null;
+    _loadTxLastViewedAt();
+    _tabController.addListener(() {
+      if (_tabController.index == 2) {
+        _markTransactionsViewedNow();
+      }
+    });
   }
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
+    _searchController.dispose();
     _tabController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadTxLastViewedAt() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final ms = prefs.getInt('txLastViewedAt');
+      if (ms != null) {
+        setState(() {
+          _txLastViewedAt = DateTime.fromMillisecondsSinceEpoch(ms);
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _markTransactionsViewedNow() async {
+    try {
+      final now = DateTime.now();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('txLastViewedAt', now.millisecondsSinceEpoch);
+      setState(() {
+        _txLastViewedAt = now;
+      });
+    } catch (_) {}
   }
 
   // Helper method to get status color
@@ -260,10 +302,10 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
             : StreamBuilder<DocumentSnapshot>(
           stream: FirebaseFirestore.instance.collection('users').doc(
               currentUser.uid).snapshots(),
-          builder: (context, snapshot) {
-            if (!snapshot.hasData || !snapshot.data!.exists) {
-              return const Text('Marketplace');
-            }
+                builder: (context, snapshot) {
+                  if (!snapshot.hasData || !snapshot.data!.exists) {
+                    return const Text('Marketplace');
+                  }
             if (!snapshot.hasData || !snapshot.data!.exists) {
               return Row(
                 children: [
@@ -288,23 +330,23 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
             final name = data['name'] ?? '';
             final isVerified = data['verificationStatus'] ??
                 data['isVerified'] ?? false;
-            return Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  name.isNotEmpty ? name : 'Marketplace',
+                  return Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        name.isNotEmpty ? name : 'Marketplace',
                   style: const TextStyle(
                       fontWeight: FontWeight.bold, fontSize: 20),
-                ),
-                const SizedBox(width: 8),
-                if (isVerified)
-                  const Icon(Icons.verified, color: Colors.blue, size: 22),
-                if (!isVerified)
-                  const Icon(Icons.cancel, color: Colors.red, size: 22),
-              ],
-            );
-          },
-        ),
+                      ),
+                      const SizedBox(width: 8),
+                      if (isVerified)
+                        const Icon(Icons.verified, color: Colors.blue, size: 22),
+                      if (!isVerified)
+                        const Icon(Icons.cancel, color: Colors.red, size: 22),
+                    ],
+                  );
+                },
+              ),
         actions: [
           if (_tabController.index == 1 && currentUser != null)
             if (_chatSelectionMode)
@@ -450,7 +492,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                           );
                         },
                       ),
-                      // Transactions Tab with badge
+                      // Transactions Tab with badge (unseen since last view)
                       StreamBuilder<QuerySnapshot>(
                         stream: FirebaseFirestore.instance
                             .collection('transactions')
@@ -459,12 +501,24 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                             .where('status', isEqualTo: 'completed')
                             .snapshots(),
                         builder: (context, txSnap) {
-                          int completedTx = txSnap.data?.docs.length ?? 0;
+                          final txDocs = txSnap.data?.docs ?? const [];
+                          int unseenCount = 0;
+                          if (_txLastViewedAt != null) {
+                            for (final d in txDocs) {
+                              final data = d.data() as Map<String, dynamic>;
+                              final ts = data['timestamp'];
+                              DateTime? when;
+                              if (ts is Timestamp) when = ts.toDate();
+                              if (when != null && when.isAfter(_txLastViewedAt!)) {
+                                unseenCount++;
+                              }
+                            }
+                          }
                           return Tab(
                             icon: Stack(
                               children: [
                                 const Icon(Icons.receipt_long),
-                                if (completedTx > 0)
+                                if (unseenCount > 0)
                                   Positioned(
                                     right: 0,
                                     child: Container(
@@ -475,7 +529,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                                         borderRadius: BorderRadius.circular(12),
                                       ),
                                       child: Text(
-                                        completedTx.toString(),
+                                        unseenCount.toString(),
                                         style: const TextStyle(
                                             color: Colors.white,
                                             fontSize: 12,
@@ -537,8 +591,8 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                 : null;
             final formattedDate = completedTime != null
                 ? '${completedTime.day.toString().padLeft(2, '0')} '
-                '${_monthName(completedTime.month)} ${completedTime.year}, '
-                '${_formatTime(completedTime)}'
+                  '${_monthName(completedTime.month)} ${completedTime.year}, '
+                  '${_formatTime(completedTime)}'
                 : '';
             final vendorId = tx['vendorId'] ?? '';
             if (vendorId.isEmpty) {
@@ -688,12 +742,12 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
             final selected = _selectedChatIds.contains(chatId);
             final status = chatData['status'] ?? 'pending';
 
-            return FutureBuilder<DocumentSnapshot>(
+    return FutureBuilder<DocumentSnapshot>(
               future: FirebaseFirestore.instance.collection('users').doc(
                   vendorId).get(),
               builder: (context, userSnap) {
                 String vendorName = 'Vendor';
-                bool isVerified = false;
+        bool isVerified = false;
 
                 if (userSnap.hasData && userSnap.data!.exists) {
                   final userData = userSnap.data!.data() as Map<String,
@@ -797,7 +851,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                         child: Padding(
                           padding: const EdgeInsets.all(16),
                           child: Row(
-                            children: [
+            children: [
                               // Selection checkbox or status + icon
                               if (_chatSelectionMode) ...[
                                 Checkbox(
@@ -808,7 +862,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                               ] else
                                 ...[
                                   Column(
-                                    children: [
+                  children: [
                                       // Status dot
                                       Container(
                                         width: 12,
@@ -833,19 +887,19 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                                           color: networkColor,
                                           size: 20,
                                         ),
-                                      ),
-                                    ],
-                                  ),
+              ),
+          ],
+        ),
                                 ],
                               const SizedBox(width: 12),
                               // Main content
                               Expanded(
                                 child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
                                     // Vendor name with verification
-                                    Row(
-                                      children: [
+            Row(
+              children: [
                                         Flexible(
                                           child: Text(
                                             vendorName,
@@ -880,7 +934,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                               // Right side - network and data amount
                               Column(
                                 crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
+                  children: [
                                   // Network pill
                                   if (networkLabel.isNotEmpty) ...[
                                     Container(
@@ -976,74 +1030,74 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
         return StatefulBuilder(
           builder: (BuildContext context, StateSetter setDialogState) {
             return AlertDialog(
-              title: const Text('Filter Listings'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Provider dropdown
-                    DropdownButtonFormField<NetworkProvider>(
+        title: const Text('Filter Listings'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Provider dropdown
+              DropdownButtonFormField<NetworkProvider>(
                       value: selectedProvider,
                       decoration: const InputDecoration(
                         labelText: 'Network Provider',
                       ),
-                      items: NetworkProvider.values.map((provider) {
-                        return DropdownMenuItem(
-                          value: provider,
+                items: NetworkProvider.values.map((provider) {
+                  return DropdownMenuItem(
+                    value: provider,
                           child: Text(
                             provider
                                 .toString()
                                 .split('.')
                                 .last,
                           ),
-                        );
-                      }).toList(),
+                  );
+                }).toList(),
                       onChanged: (NetworkProvider? value) {
                         setDialogState(() {
                           selectedProvider = value;
                         });
                       },
-                    ),
+              ),
 
-                    // Max price slider
-                    const SizedBox(height: 16),
-                    const Text('Maximum Price (GH₵)'),
-                    Slider(
+              // Max price slider
+              const SizedBox(height: 16),
+              const Text('Maximum Price (GH₵)'),
+              Slider(
                       value: maxPrice,
-                      min: 0,
-                      max: 100,
-                      divisions: 20,
+                min: 0,
+                max: 100,
+                divisions: 20,
                       label: 'GH₵${maxPrice.toStringAsFixed(2)}',
                       onChanged: (double value) {
                         setDialogState(() {
                           maxPrice = value;
                         });
                       },
-                    ),
+              ),
 
-                    // Min data amount slider
-                    const SizedBox(height: 16),
-                    const Text('Minimum Data Amount (GB)'),
-                    Slider(
+              // Min data amount slider
+              const SizedBox(height: 16),
+              const Text('Minimum Data Amount (GB)'),
+              Slider(
                       value: minDataAmount,
-                      min: 0,
-                      max: 50,
-                      divisions: 50,
+                min: 0,
+                max: 50,
+                divisions: 50,
                       label: '${minDataAmount.toStringAsFixed(1)}GB',
                       onChanged: (double value) {
                         setDialogState(() {
                           minDataAmount = value;
                         });
                       },
-                    ),
+              ),
 
-                    // Max delivery time slider
-                    const SizedBox(height: 16),
-                    const Text('Maximum Delivery Time (minutes)'),
-                    Slider(
+              // Max delivery time slider
+              const SizedBox(height: 16),
+              const Text('Maximum Delivery Time (minutes)'),
+              Slider(
                       value: maxDeliveryTime.toDouble(),
-                      min: 0,
-                      max: 120,
+                min: 0,
+                max: 120,
                       divisions: 24,
                       label: '$maxDeliveryTime min',
                       onChanged: (double value) {
@@ -1051,19 +1105,19 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                           maxDeliveryTime = value.toInt();
                         });
                       },
-                    ),
-                  ],
-                ),
               ),
-              actions: [
+            ],
+          ),
+        ),
+        actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(dialogContext),
                   child: const Text('CANCEL'),
                 ),
-                TextButton(
-                  onPressed: () {
+          TextButton(
+            onPressed: () {
                     if (mounted) {
-                      setState(() {
+              setState(() {
                         _selectedProviderFilter = selectedProvider;
                         _maxPriceFilter = maxPrice;
                         _minDataAmountFilter = minDataAmount;
@@ -1090,6 +1144,30 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
   Widget _buildMarketplaceTab(User? currentUser) {
     return Column(
       children: [
+        // Search bar
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: TextField(
+            controller: _searchController,
+            decoration: const InputDecoration(
+              prefixIcon: Icon(Icons.search),
+              hintText: 'Search vendors...',
+              border: OutlineInputBorder(),
+              isDense: true,
+              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            ),
+            onChanged: (value) {
+              _searchDebounce?.cancel();
+              _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+                if (!mounted) return;
+                setState(() {
+                  _searchQuery = value.trim().toLowerCase();
+                  _vendorDisplayLimit = 20; // reset pagination
+                });
+              });
+            },
+          ),
+        ),
         // Filter bar
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -1113,7 +1191,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                       child: Text(
                         'All Networks',
                         overflow: TextOverflow.ellipsis,
-                      ),
+                    ),
                     ),
                     ...NetworkProvider.values.map((provider) =>
                         DropdownMenuItem(
@@ -1178,7 +1256,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                 tooltip: 'Clear Filters',
                 onPressed: () {
                   if (mounted) {
-                    setState(() {
+                  setState(() {
                       _selectedProviderFilter = null;
                       _minDataAmountFilter = null;
                       _maxPriceFilter = null;
@@ -1190,44 +1268,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
             ],
           ),
         ),
-        // Featured Bundles Horizontal Section
-        StreamBuilder<QuerySnapshot>(
-          stream: FirebaseFirestore.instance
-              .collection('listings')
-              .where('featured', isEqualTo: true)
-              .snapshots(),
-          builder: (context, snapshot) {
-            if (snapshot.hasError) {
-              return const Padding(
-                padding: EdgeInsets.symmetric(vertical: 16),
-                child: Center(child: Text('Error loading featured bundles')),
-              );
-            }
-            if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-              return const SizedBox.shrink();
-            }
-            final featuredBundles = snapshot.data!.docs.map((doc) =>
-                BundleListing.fromFirestore(doc)).toList();
-            return SizedBox(
-              height: 180,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 8),
-                itemCount: featuredBundles.length,
-                separatorBuilder: (context, i) => const SizedBox(width: 16),
-                itemBuilder: (context, i) {
-                  final listing = featuredBundles[i];
-                  return SizedBox(
-                    width: 260,
-                    child: _buildFeaturedBundleCard(context, listing),
-                  );
-                },
-              ),
-            );
-          },
-        ),
-        // All Bundles Grid View
+        // Vendors List (vendor-first view)
         Expanded(
           child: StreamBuilder<List<BundleListing>>(
             stream: _listingRepository.getActiveListings(),
@@ -1235,49 +1276,243 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
               if (snapshot.hasError) {
                 return Center(child: Text('Error: ${snapshot.error}'));
               }
-              if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                return const Center(child: Text('No bundles available'));
+              if (!snapshot.hasData) {
+                // Simple skeletons
+                return ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: 6,
+                  itemBuilder: (context, i) => Container(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    height: 120,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade200,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                );
               }
-              // Apply filters
-              List<BundleListing> listings = snapshot.data!;
-              if (_selectedProviderFilter != null) {
-                listings = listings
-                    .where((l) => l.provider == _selectedProviderFilter)
-                    .toList();
+              if (snapshot.data!.isEmpty) {
+                return const Center(child: Text('No vendors available'));
               }
-              if (_minDataAmountFilter != null) {
-                listings = listings
-                    .where((l) => l.dataAmount >= _minDataAmountFilter!)
-                    .toList();
+
+              // Group by vendor
+              final Map<String, List<BundleListing>> vendorListings = {};
+              for (final listing in snapshot.data!) {
+                // Apply filters per listing before grouping
+                if (_selectedProviderFilter != null && listing.provider != _selectedProviderFilter) continue;
+                if (_minDataAmountFilter != null && listing.dataAmount < _minDataAmountFilter!) continue;
+                if (_maxPriceFilter != null && listing.price > _maxPriceFilter!) continue;
+                if (_maxDeliveryTimeFilter != null && listing.estimatedDeliveryTime > _maxDeliveryTimeFilter!) continue;
+
+                (vendorListings[listing.vendorId] ??= []).add(listing);
               }
-              if (_maxPriceFilter != null) {
-                listings = listings
-                    .where((l) => l.price <= _maxPriceFilter!)
-                    .toList();
+
+              if (vendorListings.isEmpty) {
+                return const Center(child: Text('No vendors match your filters'));
               }
-              if (_maxDeliveryTimeFilter != null) {
-                listings = listings
-                    .where((l) =>
-                l.estimatedDeliveryTime <= _maxDeliveryTimeFilter!)
-                    .toList();
-              }
-              if (listings.isEmpty) {
-                return const Center(
-                    child: Text('No bundles match your filters'));
-              }
+
+              final vendorIds = vendorListings.keys.toList();
+              // Fetch vendor names to support search filtering
+              return FutureBuilder<List<QueryDocumentSnapshot>>(
+                future: _fetchVendorsFor(vendorIds),
+                builder: (context, snapNames) {
+                  final Map<String, String> vendorIdToName = {};
+                  if (snapNames.hasData) {
+                    for (final doc in snapNames.data!) {
+                      final data = doc.data() as Map<String, dynamic>;
+                      vendorIdToName[doc.id] = (data['businessName'] ?? data['name'] ?? 'Vendor').toString();
+                    }
+                  }
+
+                  List<String> filteredIds = vendorIds.where((id) {
+                    if (_searchQuery.isEmpty) return true;
+                    final name = (vendorIdToName[id] ?? '').toLowerCase();
+                    return name.contains(_searchQuery);
+                  }).toList();
+
+                  // Pagination window
+                  final total = filteredIds.length;
+                  final limit = _vendorDisplayLimit.clamp(0, total);
+                  final visible = filteredIds.take(limit).toList();
+
+                  if (visible.isEmpty) {
+                    return const Center(child: Text('No vendors found'));
+                  }
+
               return ListView.builder(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 8),
-                itemCount: listings.length,
+                    padding: const EdgeInsets.all(16),
+                    itemCount: visible.length + (limit < total ? 1 : 0),
                 itemBuilder: (context, index) {
-                  final listing = listings[index];
-                  return _buildGridBundleCard(context, listing);
+                      if (index == visible.length) {
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: Center(
+                            child: OutlinedButton.icon(
+                              onPressed: () {
+                                setState(() {
+                                  _vendorDisplayLimit += 20;
+                                });
+                              },
+                              icon: const Icon(Icons.expand_more),
+                              label: Text('Show more (${total - limit})'),
+                            ),
+                          ),
+                        );
+                      }
+                      final vendorId = visible[index];
+                      final listings = vendorListings[vendorId]!;
+                      return _buildVendorCard(context, vendorId, listings);
+                    },
+                  );
                 },
               );
             },
           ),
         ),
       ],
+    );
+  }
+
+  Future<List<QueryDocumentSnapshot>> _fetchVendorsFor(List<String> vendorIds) async {
+    if (vendorIds.isEmpty) return [];
+    const int chunkSize = 10;
+    final List<QueryDocumentSnapshot> all = [];
+    for (int i = 0; i < vendorIds.length; i += chunkSize) {
+      final chunk = vendorIds.sublist(i, (i + chunkSize).clamp(0, vendorIds.length));
+      final snap = await FirebaseFirestore.instance
+          .collection('users')
+          .where(FieldPath.documentId, whereIn: chunk)
+          .get();
+      all.addAll(snap.docs);
+    }
+    return all;
+  }
+
+  // --- Vendor Card Widget ---
+  Widget _buildVendorCard(BuildContext context, String vendorId, List<BundleListing> listings) {
+    final totalBundles = listings.length;
+    final minPrice = listings.map((l) => l.price).reduce((a, b) => a < b ? a : b);
+    final maxPrice = listings.map((l) => l.price).reduce((a, b) => a > b ? a : b);
+    final avgDelivery = (listings.map((l) => l.estimatedDeliveryTime).reduce((a, b) => a + b) / totalBundles).round();
+
+    final providers = listings.map((l) => l.provider).toSet().toList();
+
+                  return FutureBuilder<DocumentSnapshot>(
+      future: FirebaseFirestore.instance.collection('users').doc(vendorId).get(),
+      builder: (context, snap) {
+                      String vendorName = 'Vendor';
+                      bool isVerified = false;
+        if (snap.hasData && snap.data!.exists) {
+          final data = snap.data!.data() as Map<String, dynamic>?;
+          vendorName = data?['businessName'] ?? data?['name'] ?? 'Vendor';
+          isVerified = data?['isVerified'] == true || data?['verificationStatus'] == true;
+        }
+
+        return Card(
+          margin: const EdgeInsets.only(bottom: 16),
+          elevation: 3,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: InkWell(
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => VendorDetailScreen(
+                    vendorId: vendorId,
+                    vendorName: vendorName,
+                    isVerified: isVerified,
+                  ),
+                ),
+              );
+            },
+            borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(color: Colors.orange[100], shape: BoxShape.circle),
+                    child: Icon(Icons.storefront, color: Colors.orange[700]),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                vendorName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 18,
+                                ),
+                              ),
+                            ),
+                            if (isVerified) ...[
+                              const SizedBox(width: 3),
+                              const Icon(Icons.verified, color: Colors.blue, size: 18),
+                            ],
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: providers.map((p) {
+                            Color c;
+                            String label;
+                            switch (p) {
+                        case NetworkProvider.MTN:
+                                c = const Color(0xFFFBC02D);
+                                label = 'MTN';
+                                break;
+                              case NetworkProvider.TELECEL:
+                                c = const Color(0xFFD32F2F);
+                                label = 'TELECEL';
+                          break;
+                        case NetworkProvider.AIRTELTIGO:
+                                c = const Color(0xFF1976D2);
+                                label = 'AIRTELTIGO';
+                          break;
+                              default:
+                                c = Colors.grey;
+                                label = 'UNKNOWN';
+                            }
+                            return Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(12)),
+                              child: Text(label, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                            );
+                          }).toList(),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'Price: GHS ${minPrice.toStringAsFixed(2)} - ${maxPrice.toStringAsFixed(2)}',
+                                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                            Text('$totalBundles bundles · ~${avgDelivery} mins', style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w600)),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -1293,8 +1528,8 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
         break;
       case 'NETWORKPROVIDER.AIRTELTIGO':
         networkColor = Color(0xFF1976D2); // Blue
-        break;
-      default:
+                          break;
+                        default:
         networkColor = Colors.grey;
     }
     return Builder(
@@ -1433,44 +1668,44 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
       default:
         networkColor = Colors.grey;
     }
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      return Card(
+                        elevation: 4,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  GestureDetector(
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  GestureDetector(
+                                    onTap: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
                           builder: (context) =>
                               UpdatedVendorProfileScreen(
                                   vendorId: listing.vendorId),
-                        ),
-                      );
-                    },
-                    child: CircleAvatar(
-                      backgroundColor: Colors.grey[200],
-                      radius: 24,
+                                        ),
+                                      );
+                                    },
+                                    child: CircleAvatar(
+                                      backgroundColor: Colors.grey[200],
+                                      radius: 24,
                       child: Icon(
                           Icons.storefront, color: networkColor, size: 24),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Flexible(
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Flexible(
                               child: FutureBuilder<DocumentSnapshot>(
                                 future: FirebaseFirestore.instance.collection(
                                     'users').doc(listing.vendorId).get(),
@@ -1514,22 +1749,22 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                                       Row(
                                         children: [
                                           Expanded(
-                                            child: GestureDetector(
-                                              onTap: () {
-                                                Navigator.push(
-                                                  context,
-                                                  MaterialPageRoute(
+                                              child: GestureDetector(
+                                                onTap: () {
+                                                  Navigator.push(
+                                                    context,
+                                                    MaterialPageRoute(
                                                     builder: (context) =>
                                                         UpdatedVendorProfileScreen(
                                                             vendorId: listing
                                                                 .vendorId),
-                                                  ),
-                                                );
-                                              },
+                                                    ),
+                                                  );
+                                                },
                                               child: Row(
                                                 children: [
                                                   Flexible(
-                                                    child: Text(
+                                                child: Text(
                                                       businessName,
                                                       style: const TextStyle(
                                                           fontWeight: FontWeight
@@ -1537,9 +1772,9 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                                                           fontSize: 16),
                                                       overflow: TextOverflow
                                                           .ellipsis,
-                                                      maxLines: 1,
-                                                    ),
-                                                  ),
+                                                  maxLines: 1,
+                                                ),
+                                              ),
                                                   if (isVerified) const SizedBox(
                                                       width: 4),
                                                   if (isVerified) const Icon(
@@ -1551,12 +1786,12 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                                             ),
                                           ),
                                           if (!isVerified) ...[
-                                            const SizedBox(width: 4),
+                                              const SizedBox(width: 4),
                                             const SizedBox(width: 16),
                                             // Placeholder for when verified icon isn't shown to maintain consistent spacing
+                                            ],
                                           ],
-                                        ],
-                                      ),
+                                        ),
                                       const SizedBox(height: 4),
                                       Container(
                                         padding: const EdgeInsets.symmetric(
@@ -1579,9 +1814,9 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                                   );
                                 },
                               ),
-                            ),
-                          ],
-                        ),
+                                        ),
+                                      ],
+                                    ),
                         // Network label row (remove for now, will add pill later)
                       ],
                     ),
@@ -1591,47 +1826,47 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                     child: SizedBox(
                       width: 90,
                       child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
+                                    crossAxisAlignment: CrossAxisAlignment.end,
                         mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
+                                    children: [
+                                      Container(
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 10, vertical: 6),
-                            decoration: BoxDecoration(
+                                        decoration: BoxDecoration(
                               color: networkColor.withOpacity(0.12),
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            child: Text(
-                              '${listing.dataAmount}GB',
+                                          borderRadius: BorderRadius.circular(16),
+                                        ),
+                                        child: Text(
+                                          '${listing.dataAmount}GB',
                               style: TextStyle(
-                                fontWeight: FontWeight.bold,
+                                            fontWeight: FontWeight.bold,
                                 fontSize: 16,
                                 color: networkColor,
-                              ),
-                            ),
-                          ),
+                                          ),
+                                        ),
+                                      ),
 
-                          const SizedBox(height: 6),
-                          Text(
-                            'GHS ${listing.price.toStringAsFixed(2)}',
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        'GHS ${listing.price.toStringAsFixed(2)}',
                             style: const TextStyle(fontWeight: FontWeight.bold,
                                 fontSize: 14),
-                          ),
-                        ],
-                      ),
+                                      ),
+                                    ],
+                                  ),
                     ),
                   )
-                ],
-              ),
-              const SizedBox(height: 8),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
               Text(listing.description, style: const TextStyle(fontSize: 15),
                   overflow: TextOverflow.ellipsis,
                   maxLines: 2),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  const Icon(Icons.payments, size: 18),
-                  const SizedBox(width: 4),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  const Icon(Icons.payments, size: 18),
+                                  const SizedBox(width: 4),
                   Text(
                     listing.paymentMethods.entries
                         .where((e) => e.value == true)
@@ -1643,26 +1878,26 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
               ),
               if (listing.estimatedDeliveryTime > 0 ||
                   (listing.availableStock ?? 0) > 0)
-                Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Row(
-                    children: [
-                      if (listing.estimatedDeliveryTime > 0) ...[
-                        const Icon(Icons.timer, size: 16),
-                        const SizedBox(width: 2),
-                        Text('${listing.estimatedDeliveryTime} min delivery'),
-                        const SizedBox(width: 12),
-                      ],
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 6),
+                                  child: Row(
+                                    children: [
+                                      if (listing.estimatedDeliveryTime > 0) ...[
+                                        const Icon(Icons.timer, size: 16),
+                                        const SizedBox(width: 2),
+                                        Text('${listing.estimatedDeliveryTime} min delivery'),
+                                        const SizedBox(width: 12),
+                                      ],
                       if ((listing.availableStock ?? 0) > 0) ...[
-                        const Icon(Icons.inventory_2, size: 16),
-                        const SizedBox(width: 2),
-                        Text('Stock: ${listing.availableStock}'),
-                      ],
-                    ],
-                  ),
-                ),
-              const SizedBox(height: 10),
-              Align(
+                                        const Icon(Icons.inventory_2, size: 16),
+                                        const SizedBox(width: 2),
+                                        Text('Stock: ${listing.availableStock}'),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              const SizedBox(height: 10),
+                              Align(
                 alignment: Alignment.bottomRight,
                 child: SizedBox(
                   height: 36, // Reduced height
@@ -1684,77 +1919,77 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                       tapTargetSize: MaterialTapTargetSize
                           .shrinkWrap, // Make touch target fit content
                     ),
-                    onPressed: () async {
-                      final recipientController = TextEditingController();
-                      final result = await showDialog<String>(
-                        context: context,
+                                  onPressed: () async {
+                                    final recipientController = TextEditingController();
+                                    final result = await showDialog<String>(
+                                      context: context,
                         builder: (context) =>
                             AlertDialog(
-                              title: const Text('Enter Recipient Number'),
-                              content: TextField(
-                                controller: recipientController,
-                                keyboardType: TextInputType.phone,
-                                inputFormatters: [
-                                  FilteringTextInputFormatter.digitsOnly,
-                                  LengthLimitingTextInputFormatter(10),
-                                ],
-                                decoration: const InputDecoration(
-                                  labelText: 'Recipient Number',
-                                  hintText: 'e.g. 024XXXXXXX',
-                                ),
-                              ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.pop(context),
+                                        title: const Text('Enter Recipient Number'),
+                                        content: TextField(
+                                          controller: recipientController,
+                                          keyboardType: TextInputType.phone,
+                                          inputFormatters: [
+                                            FilteringTextInputFormatter.digitsOnly,
+                                            LengthLimitingTextInputFormatter(10),
+                                          ],
+                                          decoration: const InputDecoration(
+                                            labelText: 'Recipient Number',
+                                            hintText: 'e.g. 024XXXXXXX',
+                                          ),
+                                        ),
+                                        actions: [
+                                          TextButton(
+                                            onPressed: () => Navigator.pop(context),
                                   child: const Text('Cancel',
                                       style: TextStyle(color: Colors.black)),
-                                ),
-                                ElevatedButton(
-                                  onPressed: () {
+                                          ),
+                                          ElevatedButton(
+                                            onPressed: () {
                                     final number = recipientController.text
                                         .trim();
-                                    if (number.length != 10) {
+                                              if (number.length != 10) {
                                       ScaffoldMessenger
                                           .of(context)
                                           .showSnackBar(
                                         const SnackBar(content: Text(
                                             'Please enter a valid 10-digit recipient number')),
-                                      );
-                                      return;
-                                    }
-                                    Navigator.pop(context, number);
-                                  },
+                                                );
+                                                return;
+                                              }
+                                              Navigator.pop(context, number);
+                                            },
                                   style: ElevatedButton.styleFrom(
                                       foregroundColor: Colors.black),
                                   child: const Text('Continue',
                                       style: TextStyle(color: Colors.black)),
-                                ),
-                              ],
-                            ),
-                      );
-                      if (result != null && result.isNotEmpty) {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                    if (result != null && result.isNotEmpty) {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
                             builder: (context) =>
                                 ChatScreen(
                                   chatId: '',
-                                  vendorId: listing.vendorId,
+                                            vendorId: listing.vendorId,
                                   bundleId: listing.id,
                                   businessName: listing.vendorId ?? '',
-                                  recipientNumber: result,
-                                ),
-                          ),
+                                            recipientNumber: result,
+                                          ),
+                                        ),
                         );
                       }
                     },
-                  ),
-                ),
-              ),
+                                  ),
+                                ),
+                              ),
             ]
-        ),
-      ),
-    );
+                          ),
+                        ),
+                      );
 
 //                       // Vendor name and shop icon
 //                       FutureBuilder<DocumentSnapshot>(

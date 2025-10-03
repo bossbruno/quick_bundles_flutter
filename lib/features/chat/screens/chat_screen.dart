@@ -717,6 +717,34 @@ class _ChatScreenState extends State<ChatScreen> {
                         const SizedBox(height: 4),
                         Text(_bundle!.description),
                         const SizedBox(height: 8),
+                        // Recipient number (copyable for vendor)
+                        Row(
+                          children: [
+                            const Icon(Icons.phone_iphone, size: 16, color: Colors.blueGrey),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                'Recipient: ${widget.recipientNumber}',
+                                style: const TextStyle(fontWeight: FontWeight.w600),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (user!.uid == widget.vendorId)
+                              IconButton(
+                                tooltip: 'Copy number',
+                                icon: const Icon(Icons.copy, size: 18),
+                                onPressed: () async {
+                                  await Clipboard.setData(ClipboardData(text: widget.recipientNumber));
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Recipient number copied')),
+                                    );
+                                  }
+                                },
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
                         Row(
                           children: [
                             const Text('Order Status: '),

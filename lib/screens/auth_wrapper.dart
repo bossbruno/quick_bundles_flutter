@@ -33,7 +33,15 @@ class _AuthWrapperState extends State<AuthWrapper> {
         await FirebaseInit.initialize();
       }
       
-      // Auth persistence is automatic on mobile platforms
+      // Wait a moment for auth state to stabilize
+      await Future.delayed(const Duration(milliseconds: 500));
+      
+      // Check if user is already signed in
+      final currentUser = _auth.currentUser;
+      if (kDebugMode) {
+        print('Current user on init: ${currentUser?.uid ?? 'null'}');
+      }
+      
       setState(() => _initialized = true);
       
     } catch (e) {
@@ -102,8 +110,19 @@ class _AuthWrapperState extends State<AuthWrapper> {
           );
         }
 
+        // Handle errors in auth state
+        if (snapshot.hasError) {
+          if (kDebugMode) {
+            print('Auth state error: ${snapshot.error}');
+          }
+          return const LoginScreen();
+        }
+
         // If user is not authenticated, show login screen
         if (!snapshot.hasData || snapshot.data == null) {
+          if (kDebugMode) {
+            print('No authenticated user found');
+          }
           return const LoginScreen();
         }
 

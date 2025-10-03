@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import '../../firebase_options.dart';
 
@@ -30,6 +31,18 @@ class FirebaseInit {
       } catch (e) {
         if (kDebugMode) {
           print('Firestore settings warning: $e');
+        }
+      }
+
+      // Configure Firebase Auth persistence
+      try {
+        await FirebaseAuth.instance.setPersistence(Persistence.LOCAL);
+        if (kDebugMode) {
+          print('✅ Firebase Auth persistence enabled');
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          print('Firebase Auth persistence warning: $e');
         }
       }
 

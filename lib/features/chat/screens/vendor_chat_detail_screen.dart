@@ -263,9 +263,9 @@ class _VendorChatDetailScreenState extends State<VendorChatDetailScreen> {
     
     try {
       await batch.commit();
-      setState(() {
-        orderStatus = status;
-      });
+    setState(() {
+      orderStatus = status;
+    });
     } catch (e) {
       debugPrint('Error updating status: $e');
       if (mounted) {
@@ -348,18 +348,18 @@ class _VendorChatDetailScreenState extends State<VendorChatDetailScreen> {
                             onChanged: (val) async {
                               if (val != null) {
                                 try {
-                                  final batch = FirebaseFirestore.instance.batch();
-                                  final chatRef = FirebaseFirestore.instance.collection('chats').doc(widget.chatId);
-                                  final now = FieldValue.serverTimestamp();
+                                final batch = FirebaseFirestore.instance.batch();
+                                final chatRef = FirebaseFirestore.instance.collection('chats').doc(widget.chatId);
+                                final now = FieldValue.serverTimestamp();
                                   final chatDoc = await chatRef.get();
                                   final chatData = chatDoc.data() as Map<String, dynamic>?;
-                                  
-                                  // Update chat status
-                                  batch.update(chatRef, {
-                                    'status': val,
-                                    'updatedAt': now,
-                                  });
-                                  
+                                
+                                // Update chat status
+                                batch.update(chatRef, {
+                                  'status': val,
+                                  'updatedAt': now,
+                                });
+                                
                                   // Only create/update transaction when marking as completed
                                   if (val == 'completed' && chatData != null) {
                                     final txRef = FirebaseFirestore.instance.collection('transactions').doc();
@@ -378,7 +378,7 @@ class _VendorChatDetailScreenState extends State<VendorChatDetailScreen> {
                                       'dataAmount': bundleInfo?['dataAmount'] ?? 0,
                                       'recipientNumber': chatData['recipientNumber'] ?? '',
                                       'createdAt': now,
-                                      'updatedAt': now,
+                                    'updatedAt': now,
                                       'completedBy': user!.uid,
                                       'completedAt': now,
                                     });
@@ -394,9 +394,9 @@ class _VendorChatDetailScreenState extends State<VendorChatDetailScreen> {
                                         activeOrderId = txId;
                                       });
                                     }
-                                  }
-                                  
-                                  await batch.commit();
+                                }
+                                
+                                await batch.commit();
                                   
                                   // Update local state
                                   if (mounted) {
