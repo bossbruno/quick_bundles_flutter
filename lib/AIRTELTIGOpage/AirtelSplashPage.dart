@@ -16,7 +16,7 @@ class _AirtelPageState extends State<AirtelPage> {
   void initState() {
     super.initState();
     Timer(
-      const Duration(seconds: 1),
+      const Duration(milliseconds: 500),
       () => Navigator.of(context).pushReplacement(MaterialPageRoute(
         builder: (BuildContext context) => const MTNPage()
       ))

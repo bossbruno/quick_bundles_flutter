@@ -4,11 +4,67 @@ enum NetworkProvider { MTN, AIRTELTIGO, TELECEL }
 enum ListingStatus { ACTIVE, INACTIVE, COMPLETED }
 
 class BundleListing {
+  // Helper: map Firestore string -> enum
+  static ListingStatus _statusFromString(String? status) {
+    switch ((status ?? '').toLowerCase()) {
+      case 'active':
+        return ListingStatus.ACTIVE;
+      case 'inactive':
+        return ListingStatus.INACTIVE;
+      case 'sold':
+        return ListingStatus.COMPLETED;
+      default:
+        return ListingStatus.ACTIVE;
+    }
+  }
+
+  // Helper: map enum -> Firestore string allowed by rules
+  static String _statusToString(ListingStatus status) {
+    switch (status) {
+      case ListingStatus.ACTIVE:
+        return 'active';
+      case ListingStatus.INACTIVE:
+        return 'inactive';
+      case ListingStatus.COMPLETED:
+        return 'sold';
+    }
+  }
+  // Factory method to create BundleListing from Firestore DocumentSnapshot
+  factory BundleListing.fromFirestore(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>? ?? {};
+    return BundleListing._fromMap(doc.id, data);
+  }
+  
+  // Private constructor for internal use
+  BundleListing._fromMap(String id, Map<String, dynamic> map) :
+    id = id,
+    vendorId = map['vendorId'] ?? '',
+    provider = NetworkProvider.values.firstWhere(
+      (e) => e.toString() == 'NetworkProvider.${map['provider']}',
+      orElse: () => NetworkProvider.MTN,
+    ),
+    dataAmount = (map['dataAmount'] as num?)?.toDouble() ?? 0.0,
+    price = (map['price'] as num?)?.toDouble() ?? 0.0,
+    title = map['title'] ?? '${map['dataAmount']}GB ${map['provider'] ?? 'Bundle'}',
+    description = map['description'] ?? '',
+    estimatedDeliveryTime = map['estimatedDeliveryTime'] ?? 5,
+    availableStock = map['availableStock'] ?? 0,
+    status = _statusFromString(map['status']),
+    createdAt = (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+    updatedAt = (map['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+    paymentMethods = Map<String, bool>.from(map['paymentMethods'] ?? {}),
+    minOrder = (map['minOrder'] as num?)?.toDouble() ?? 1.0,
+    maxOrder = (map['maxOrder'] as num?)?.toDouble() ?? 0.0,
+    network = map['network'] ?? map['provider']?.toString() ?? 'MTN',
+    bundleSize = map['bundleSize'] ?? '${map['dataAmount']}GB',
+    validity = map['validity'] ?? '30 days',
+    discountPercentage = (map['discountPercentage'] as num?)?.toDouble() ?? 0.0;
   final String id;
   final String vendorId;
   final NetworkProvider provider;
   final double dataAmount; // in GB
   final double price;
+  final String title; // Added: Required by Firestore rules
   final String description;
   final int estimatedDeliveryTime; // in minutes
   final int availableStock;
@@ -18,6 +74,10 @@ class BundleListing {
   final Map<String, dynamic> paymentMethods; // e.g., {'momo': true, 'bank': false}
   final double minOrder;
   final double maxOrder;
+  final String network; // Added: Required by Firestore rules
+  final String bundleSize; // Added: Required by Firestore rules
+  final String validity; // Added: Required by Firestore rules
+  final double discountPercentage; // Added: Required by Firestore rules
 
   BundleListing({
     required this.id,
@@ -25,6 +85,7 @@ class BundleListing {
     required this.provider,
     required this.dataAmount,
     required this.price,
+    required this.title,
     required this.description,
     required this.estimatedDeliveryTime,
     required this.availableStock,
@@ -34,6 +95,10 @@ class BundleListing {
     required this.paymentMethods,
     required this.minOrder,
     required this.maxOrder,
+    required this.network,
+    required this.bundleSize,
+    required this.validity,
+    this.discountPercentage = 0.0,
   });
 
   BundleListing copyWith({
@@ -42,6 +107,7 @@ class BundleListing {
     NetworkProvider? provider,
     double? dataAmount,
     double? price,
+    String? title,
     String? description,
     int? estimatedDeliveryTime,
     int? availableStock,
@@ -51,6 +117,10 @@ class BundleListing {
     Map<String, dynamic>? paymentMethods,
     double? minOrder,
     double? maxOrder,
+    String? network,
+    String? bundleSize,
+    String? validity,
+    double? discountPercentage,
   }) {
     return BundleListing(
       id: id ?? this.id,
@@ -58,6 +128,7 @@ class BundleListing {
       provider: provider ?? this.provider,
       dataAmount: dataAmount ?? this.dataAmount,
       price: price ?? this.price,
+      title: title ?? this.title,
       description: description ?? this.description,
       estimatedDeliveryTime: estimatedDeliveryTime ?? this.estimatedDeliveryTime,
       availableStock: availableStock ?? this.availableStock,
@@ -67,37 +138,16 @@ class BundleListing {
       paymentMethods: paymentMethods ?? this.paymentMethods,
       minOrder: minOrder ?? this.minOrder,
       maxOrder: maxOrder ?? this.maxOrder,
+      network: network ?? this.network,
+      bundleSize: bundleSize ?? this.bundleSize,
+      validity: validity ?? this.validity,
+      discountPercentage: discountPercentage ?? this.discountPercentage,
     );
   }
 
-  factory BundleListing.fromFirestore(DocumentSnapshot doc) {
-    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-    return BundleListing(
-      id: doc.id,
-      vendorId: data['vendorId'] ?? '',
-      provider: NetworkProvider.values.firstWhere(
-        (e) => e.toString() == 'NetworkProvider.${data['provider']}',
-        orElse: () => NetworkProvider.MTN,
-      ),
-      dataAmount: (data['dataAmount'] ?? 0.0).toDouble(),
-      price: (data['price'] ?? 0.0).toDouble(),
-      description: data['description'] ?? '',
-      estimatedDeliveryTime: data['estimatedDeliveryTime'] ?? 30,
-      availableStock: data['availableStock'] ?? 0,
-      status: ListingStatus.values.firstWhere(
-        (e) => e.toString() == 'ListingStatus.${data['status']}',
-        orElse: () => ListingStatus.INACTIVE,
-      ),
-      createdAt: (data['createdAt'] is Timestamp)
-        ? (data['createdAt'] as Timestamp).toDate()
-        : DateTime.now(),
-      updatedAt: (data['updatedAt'] is Timestamp)
-        ? (data['updatedAt'] as Timestamp).toDate()
-        : DateTime.now(),
-      paymentMethods: data['paymentMethods'] ?? {},
-      minOrder: (data['minOrder'] ?? 0.0).toDouble(),
-      maxOrder: (data['maxOrder'] ?? 0.0).toDouble(),
-    );
+  // Factory method to create BundleListing from a map
+  factory BundleListing.fromMap(String id, Map<String, dynamic> map) {
+    return BundleListing._fromMap(id, map);
   }
 
   Map<String, dynamic> toMap() {
@@ -106,15 +156,20 @@ class BundleListing {
       'provider': provider.toString().split('.').last,
       'dataAmount': dataAmount,
       'price': price,
+      'title': title,
       'description': description,
       'estimatedDeliveryTime': estimatedDeliveryTime,
       'availableStock': availableStock,
-      'status': status.toString().split('.').last,
+      'status': _statusToString(status),
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': Timestamp.fromDate(updatedAt),
       'paymentMethods': paymentMethods,
       'minOrder': minOrder,
       'maxOrder': maxOrder,
+      'network': network,
+      'bundleSize': bundleSize,
+      'validity': validity,
+      'discountPercentage': discountPercentage,
     };
   }
 }

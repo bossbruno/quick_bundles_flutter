@@ -50,46 +50,82 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
-      chatId = widget.chatId;
-    _fetchBundleAndChat();
-    if (chatId == null || chatId!.isEmpty) {
-      _initChat();
-    } else {
-      _loadExistingChat();
-    }
+    chatId = widget.chatId;
+    _fetchBundleAndChat().then((_) {
+      if (chatId == null || chatId!.isEmpty) {
+        _initChat();
+      } else {
+        _loadExistingChat();
+      }
+    });
+    
+    // Add a listener to scroll to bottom when new messages arrive
+    _scrollController.addListener(() {});
+    
+    // Mark messages as read when chat is opened
+    _markMessagesAsRead();
+  }
+  
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Mark messages as read when the screen is focused
+    _markMessagesAsRead();
   }
 
   Future<void> _fetchBundleAndChat() async {
+    if (!mounted) return;
+    
     setState(() => _loading = true);
     try {
       // Fetch bundle
       final bundleSnap = await FirebaseFirestore.instance.collection('listings').doc(widget.bundleId).get();
-      if (bundleSnap.exists) {
-        _bundle = BundleListing.fromFirestore(bundleSnap);
+      
+      if (mounted) {
+        setState(() {
+          if (bundleSnap.exists) {
+            _bundle = BundleListing.fromFirestore(bundleSnap);
+          } else {
+            _bundle = BundleListing(
+              id: widget.bundleId,
+              vendorId: widget.vendorId,
+              provider: NetworkProvider.MTN,
+              dataAmount: 0,
+              price: 0,
+              title: 'Bundle Not Found',
+              description: 'The requested bundle could not be found',
+              estimatedDeliveryTime: 0,
+              availableStock: 0,
+              status: ListingStatus.INACTIVE,
+              createdAt: DateTime.now(),
+              updatedAt: DateTime.now(),
+              paymentMethods: {},
+              minOrder: 1.0,
+              maxOrder: 0.0,
+              network: 'MTN',
+              bundleSize: '0GB',
+              validity: 'N/A',
+              discountPercentage: 0.0,
+            );
+          }
+        });
+      }
+      
+      // Initialize or load chat
+      if (widget.chatId == null || widget.chatId!.isEmpty) {
+        await _initChat();
       } else {
-        _bundle = BundleListing(
-          id: widget.bundleId,
-          vendorId: widget.vendorId,
-          provider: NetworkProvider.MTN,
-          dataAmount: 0,
-          price: 0,
-          description: 'Bundle not found',
-          estimatedDeliveryTime: 0,
-          availableStock: 0,
-          status: ListingStatus.INACTIVE,
-          createdAt: DateTime.now(),
-          updatedAt: DateTime.now(),
-          paymentMethods: {},
-          minOrder: 0,
-          maxOrder: 0,
+        await _loadExistingChat();
+      }
+    } catch (e) {
+      debugPrint('Error in _fetchBundleAndChat: $e');
+      if (mounted) {
+        setState(() => _loading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Error loading bundle details. Please try again.')),
         );
       }
-      // Optionally fetch chat details if needed
-      // ...
-    } catch (e) {
-      debugPrint('Error fetching bundle in ChatScreen: $e');
     }
-    setState(() => _loading = false);
   }
 
   @override
@@ -100,61 +136,167 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _initChat() async {
-    final chats = FirebaseFirestore.instance.collection('chats');
-    debugPrint('Creating new chat for new purchase...');
-    
-    // Get buyer name from user profile
-    String buyerName = 'Buyer';
     try {
-      final userDoc = await FirebaseFirestore.instance.collection('users').doc(user!.uid).get();
-      if (userDoc.exists) {
-        final userData = userDoc.data() as Map<String, dynamic>?;
-        buyerName = userData?['name'] ?? userData?['businessName'] ?? 'Buyer';
+      if (!mounted) return;
+      
+      final chats = FirebaseFirestore.instance.collection('chats');
+      debugPrint('Creating new chat for new purchase...');
+      
+      // Get buyer name from user profile
+      String buyerName = 'Buyer';
+      try {
+        final userDoc = await FirebaseFirestore.instance.collection('users').doc(user!.uid).get();
+        if (userDoc.exists) {
+          final userData = userDoc.data() as Map<String, dynamic>?;
+          buyerName = userData?['name'] ?? userData?['businessName'] ?? 'Buyer';
+        }
+      } catch (e) {
+        debugPrint('Error getting buyer name: $e');
       }
-    } catch (e) {
-      debugPrint('Error getting buyer name: $e');
-    }
-    
-    // Create a transaction ID for this chat (transaction will be created when data is received)
-    final txId = FirebaseFirestore.instance.collection('transactions').doc().id;
-    
-    // Create chat with the transaction ID (transaction doesn't exist yet but we have the ID)
-    final doc = await chats.add({
-      'bundleId': widget.bundleId,
-      'buyerId': user!.uid,
-      'buyerName': buyerName,
-      'vendorId': widget.vendorId,
-      'status': 'pending',
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-      'recipientNumber': widget.recipientNumber,
-      'activeOrderId': txId, // Set the transaction ID but don't create the transaction yet
-    });
-    
-    debugPrint('Created new chat: ${doc.id} with transaction ID: $txId');
-    
-    setState(() {
-      chatId = doc.id;
-      activeOrderId = txId;
-    });
-    
-    // Send system message about the new order
-    if (mounted) {
-      await _sendMessage(
-        'New order started for ${_bundle?.dataAmount ?? 'N/A'}GB ${_bundle?.provider.toString().split('.').last ?? 'bundle'} for ${widget.recipientNumber}',
-        isSystem: true,
-      );
+      
+      // Create a transaction ID for this chat
+      final txId = FirebaseFirestore.instance.collection('transactions').doc().id;
+      final now = FieldValue.serverTimestamp();
+      
+      // Create chat document reference
+      final chatRef = chats.doc();
+      
+      // Prepare the system message with all required fields
+      final systemMessage = {
+        'senderId': 'system',
+        'text': 'New order started for ${_bundle?.dataAmount ?? 'N/A'}GB ${_bundle?.provider.toString().split('.').last ?? 'bundle'} for ${widget.recipientNumber}',
+        'timestamp': now,
+        'isSystem': true,
+        'isRead': false, // Required by Firestore rules for message updates
+        'createdAt': now, // Add timestamp for sorting
+      };
+      
+      // Build chat data with required fields
+      final chatData = {
+        'bundleId': widget.bundleId,
+        'buyerId': user!.uid,
+        'buyerName': buyerName,
+        'vendorId': widget.vendorId,
+        'status': 'pending',
+        'createdAt': now,
+        'updatedAt': now,
+        'lastMessage': systemMessage['text'],
+        'lastMessageTime': now,
+        'recipientNumber': widget.recipientNumber,
+        'activeOrderId': txId,
+        'lastMessageSenderId': 'system',
+        'unreadCount_${user!.uid}': 0,
+        'unreadCount_${widget.vendorId}': 1, // Vendor has one unread message
+      };
+      
+      // 1) Create the chat document first so rules for messages can see participants
+      await chatRef.set(chatData);
+      
+      // 2) Then add the initial system message
+      await chatRef.collection('messages').add(systemMessage);
+      
+      debugPrint('Created new chat: ${chatRef.id} with transaction ID: $txId');
+
+      // Notify vendor about the new order
+      try {
+        final vendorDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(widget.vendorId)
+            .get();
+        final vendorToken = vendorDoc.data()?['fcmToken'];
+        final bundleName = _bundle?.description ?? '${_bundle?.dataAmount ?? 0}GB ${_bundle?.provider.toString().split('.').last}';
+        if (vendorToken is String && vendorToken.isNotEmpty) {
+          await FCMV1Service().sendMessage(
+            token: vendorToken,
+            title: 'New order from $buyerName',
+            body: '$bundleName for ${widget.recipientNumber}',
+            sound: 'default',
+            category: 'ORDER_CATEGORY',
+            clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+            data: {
+              'type': 'order_update',
+              'orderStatus': 'pending',
+              'chatId': chatRef.id,
+              'bundleId': widget.bundleId,
+              'buyerId': user!.uid,
+            },
+          );
+          debugPrint('Notified vendor of new order via FCM');
+        } else {
+          debugPrint('Vendor FCM token not found; skipping new order notification');
+        }
+      } catch (e) {
+        debugPrint('Failed to send new order notification: $e');
+      }
+      
+      if (mounted) {
+        setState(() {
+          chatId = chatRef.id;
+          activeOrderId = txId;
+          _loading = false; // Set loading to false after successful creation
+        });
+        
+        // Scroll to bottom to show the new message
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _scrollToBottom();
+        });
+      }
+    } catch (e, stackTrace) {
+      debugPrint('Error initializing chat: $e');
+      debugPrint('Stack trace: $stackTrace');
+      if (mounted) {
+        setState(() => _loading = false); // Ensure loading is false on error
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to initialize chat. Please try again.')),
+        );
+      }
     }
   }
 
   Future<void> _loadExistingChat() async {
-    final doc = await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).get();
-    if (doc.exists) {
-      final data = doc.data() as Map<String, dynamic>;
-      setState(() {
-        chatId = doc.id;
-        activeOrderId = data.containsKey('activeOrderId') ? data['activeOrderId'] : null;
-      });
+    if (widget.chatId == null || widget.chatId!.isEmpty) {
+      debugPrint('No chat ID provided for loading existing chat');
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+      return;
+    }
+    
+    try {
+      final doc = await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).get();
+      
+      if (doc.exists) {
+        final data = doc.data() as Map<String, dynamic>?;
+        if (mounted) {
+          setState(() {
+            chatId = doc.id;
+            activeOrderId = data?['activeOrderId'];
+            orderStatus = data?['status'] ?? 'pending';
+            _loading = false; // Set loading to false after loading
+          });
+          
+          // Mark messages as read
+          _markMessagesAsRead();
+          
+          // Scroll to bottom to show latest messages
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _scrollToBottom();
+          });
+        }
+      } else {
+        debugPrint('Chat document ${widget.chatId} does not exist');
+        // If chat doesn't exist, create a new one
+        await _initChat();
+      }
+    } catch (e, stackTrace) {
+      debugPrint('Error loading chat: $e');
+      debugPrint('Stack trace: $stackTrace');
+      if (mounted) {
+        setState(() => _loading = false); // Ensure loading is false on error
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Error loading chat. Please try again.')),
+        );
+      }
     }
   }
 
@@ -200,6 +342,7 @@ class _ChatScreenState extends State<ChatScreen> {
       batch.set(txRef, {
         'id': txId,
         'userId': user.uid,
+        'buyerId': user.uid,
         'buyerName': buyerName,  // Add buyer's name to transaction
         'vendorId': widget.vendorId,
         'type': 'bundle_purchase',
@@ -273,21 +416,21 @@ class _ChatScreenState extends State<ChatScreen> {
         return Colors.blue;
       case 'data_sent':
         return Colors.green;
+      case 'completed':
+        return Colors.grey;
       default:
         return Colors.grey;
     }
   }
 
   void _scrollToBottom() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
-      }
-    });
+    if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+    }
   }
 
   // Helper method to build message text with clickable phone numbers
@@ -366,21 +509,28 @@ class _ChatScreenState extends State<ChatScreen> {
     if (message.trim().isEmpty && _imageFile == null) return;
     setState(() => _isSending = true);
     try {
+      // Capture UI state and clear immediately for better UX (mirror vendor side)
+      final messageText = message.trim();
+      final imageToSend = _imageFile;
+      _messageController.clear();
+      setState(() => _imageFile = null);
+
       String? imageUrl;
-      if (_imageFile != null) {
+      if (imageToSend != null) {
         // Upload image to Firebase Storage
         final fileName = 'chat_images/${DateTime.now().millisecondsSinceEpoch}_${user!.uid}.jpg';
         final ref = FirebaseStorage.instance.ref().child(fileName);
-        await ref.putFile(_imageFile!);
+        await ref.putFile(imageToSend);
         imageUrl = await ref.getDownloadURL();
       }
       
       final messageData = {
         'senderId': isSystem ? 'system' : user!.uid,
-        'text': message,
+        'text': messageText,
         'timestamp': FieldValue.serverTimestamp(),
         'imageUrl': imageUrl,
         'isSystem': isSystem,
+        'isRead': false,
       };
       
       // Add message to subcollection
@@ -392,17 +542,22 @@ class _ChatScreenState extends State<ChatScreen> {
       
       // Update chat document with last message info (only for non-system messages)
       if (!isSystem) {
-        await FirebaseFirestore.instance
-            .collection('chats')
-            .doc(chatId)
-            .update({
-          'lastMessage': imageUrl != null ? '📷 Image' : message,
-          'lastMessageTime': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
+        await FirebaseFirestore.instance.runTransaction((transaction) async {
+          final chatRef = FirebaseFirestore.instance.collection('chats').doc(chatId);
+          final chatDoc = await transaction.get(chatRef);
+          if (!chatDoc.exists) return;
+          transaction.update(chatRef, {
+            'lastMessage': imageUrl != null ? '📷 Image' : messageText,
+            'lastMessageTime': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+            'lastMessageSenderId': user!.uid,
+            // increment vendor's unread counter since buyer is sending
+            'unreadCount_${widget.vendorId}': FieldValue.increment(1),
+          });
         });
       }
       
-      // Only send notifications if the message isn't from the current user
+      // Only send notifications if the recipient is different from current user
       if (user!.uid != widget.vendorId) {
         try {
           // Get vendor's FCM token from Firestore
@@ -419,7 +574,7 @@ class _ChatScreenState extends State<ChatScreen> {
             await FCMV1Service().sendMessage(
               token: vendorFcmToken,
               title: 'New message from ${user?.displayName ?? 'Buyer'}',
-              body: message.isNotEmpty ? message : '📷 Image',
+              body: messageText.isNotEmpty ? messageText : '📷 Image',
               sound: 'default',
               category: 'MESSAGE_CATEGORY',
               clickAction: 'FLUTTER_NOTIFICATION_CLICK',
@@ -438,14 +593,20 @@ class _ChatScreenState extends State<ChatScreen> {
           } else {
             debugPrint('Vendor FCM token not found');
           }
+          // Also try OneSignal via NotificationService for better reliability
+          await NotificationService().sendChatNotification(
+            recipientUserId: widget.vendorId,
+            senderName: user?.displayName ?? 'Buyer',
+            message: imageUrl != null ? '📷 Image' : messageText,
+            chatId: chatId!,
+            bundleId: _bundle?.id,
+          );
         } catch (e, stack) {
           debugPrint('Error sending FCM notification: $e');
           debugPrint('Stack trace: $stack');
         }
       }
       
-      _messageController.clear();
-      setState(() => _imageFile = null);
       _scrollToBottom();
     } catch (e) {
       if (mounted) {
@@ -483,16 +644,32 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _markMessagesAsRead() async {
-    if (chatId == null) return;
-    final unread = await FirebaseFirestore.instance
+    if (chatId == null || user?.uid == null) return;
+    
+    // Mark messages as read
+    final messagesRef = FirebaseFirestore.instance
         .collection('chats')
         .doc(chatId)
         .collection('messages')
         .where('isRead', isEqualTo: false)
-        .where('senderId', isEqualTo: widget.vendorId)
-        .get();
-    for (var doc in unread.docs) {
-      doc.reference.update({'isRead': true});
+        .where('senderId', isNotEqualTo: user!.uid);
+        
+    final snapshot = await messagesRef.get();
+    
+    if (snapshot.docs.isNotEmpty) {
+      final batch = FirebaseFirestore.instance.batch();
+      for (var doc in snapshot.docs) {
+        batch.update(doc.reference, {'isRead': true});
+      }
+      
+      // Update the unread count in the chat document
+      final chatRef = FirebaseFirestore.instance.collection('chats').doc(chatId);
+      batch.update(chatRef, {
+        'unreadCount_${user!.uid}': 0,
+        'lastMessageRead_${user!.uid}': FieldValue.serverTimestamp(),
+      });
+      
+      await batch.commit();
     }
   }
 
@@ -765,7 +942,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                 chatStatus == 'completed'
                                     ? Chip(
                                         label: const Text('COMPLETED'),
-                                        backgroundColor: Colors.green,
+                                        backgroundColor: Colors.grey,
                                         labelStyle: const TextStyle(
                                           color: Colors.white,
                                           fontWeight: FontWeight.bold,
@@ -781,12 +958,26 @@ class _ChatScreenState extends State<ChatScreen> {
                                         onChanged: (val) async {
                                           if (val != null && chatId != null) {
                                             try {
+                                              final batch = FirebaseFirestore.instance.batch();
                                               final now = FieldValue.serverTimestamp();
                                               final chatRef = FirebaseFirestore.instance.collection('chats').doc(chatId);
-                                              await chatRef.update({
+                                              
+                                              // Update chat status
+                                              batch.update(chatRef, {
                                                 'status': val,
                                                 'updatedAt': now,
                                               });
+                                              
+                                              // If transaction exists, also update transaction status
+                                              if (activeOrderId != null) {
+                                                final txRef = FirebaseFirestore.instance.collection('transactions').doc(activeOrderId);
+                                                batch.update(txRef, {
+                                                  'status': val,
+                                                  'updatedAt': now,
+                                                });
+                                              }
+                                              
+                                              await batch.commit();
                                               setState(() {
                                                 orderStatus = val;
                                               });
@@ -965,6 +1156,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                                 batch.set(txRef, {
                                                   'id': activeOrderId,
                                                   'userId': userId,
+                                                  'buyerId': userId,
                                                   'vendorId': widget.vendorId,
                                                   'type': 'bundle_purchase',
                                                   'amount': _bundle!.price,
@@ -984,7 +1176,6 @@ class _ChatScreenState extends State<ChatScreen> {
                                                 batch.update(chatRef, {
                                                   'status': 'completed',
                                                   'completedBy': userId,
-                                                  'completedAt': now,
                                                   'updatedAt': now,
                                                 });
 

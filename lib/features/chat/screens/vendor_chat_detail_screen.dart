@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import 'package:quick_bundles_flutter/services/fcm_v1_service.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/services.dart';
 import '../../../services/notification_service.dart';
 
 class VendorChatDetailScreen extends StatefulWidget {
@@ -72,16 +73,38 @@ class _VendorChatDetailScreenState extends State<VendorChatDetailScreen> {
   }
 
   Future<void> _markMessagesAsRead() async {
-    final unread = await FirebaseFirestore.instance
+    final currentUserId = user?.uid;
+    if (currentUserId == null) return;
+
+    final messagesQuery = await FirebaseFirestore.instance
         .collection('chats')
         .doc(widget.chatId)
         .collection('messages')
         .where('isRead', isEqualTo: false)
-        .where('senderId', isEqualTo: widget.buyerId)
+        .where('senderId', isEqualTo: widget.buyerId) // unread messages from buyer
         .get();
-    for (var doc in unread.docs) {
-      doc.reference.update({'isRead': true});
+
+    if (messagesQuery.docs.isEmpty) {
+      // Still ensure unread counter is zeroed in case it was left stale
+      await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).update({
+        'unreadCount_${currentUserId}': 0,
+        'lastMessageRead_${currentUserId}': FieldValue.serverTimestamp(),
+      });
+      return;
     }
+
+    final batch = FirebaseFirestore.instance.batch();
+    for (var doc in messagesQuery.docs) {
+      batch.update(doc.reference, {'isRead': true});
+    }
+
+    final chatRef = FirebaseFirestore.instance.collection('chats').doc(widget.chatId);
+    batch.update(chatRef, {
+      'unreadCount_${currentUserId}': 0,
+      'lastMessageRead_${currentUserId}': FieldValue.serverTimestamp(),
+    });
+
+    await batch.commit();
   }
 
   Color _statusColor(String status) {
@@ -92,6 +115,8 @@ class _VendorChatDetailScreenState extends State<VendorChatDetailScreen> {
         return Colors.blue;
       case 'data_sent':
         return Colors.green;
+      case 'completed':
+        return Colors.grey;
       default:
         return Colors.grey;
     }
@@ -146,14 +171,22 @@ class _VendorChatDetailScreenState extends State<VendorChatDetailScreen> {
         'imageUrl': imageUrl,
       });
       
-      // Update chat document with last message info
-      await FirebaseFirestore.instance
-          .collection('chats')
-          .doc(widget.chatId)
-          .update({
-        'lastMessage': imageUrl != null ? '📷 Image' : messageText,
-        'lastMessageTime': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
+      // Update chat document with last message info and increment unread count for buyer
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final chatRef = FirebaseFirestore.instance.collection('chats').doc(widget.chatId);
+        final chatDoc = await transaction.get(chatRef);
+        
+        if (!chatDoc.exists) return;
+        
+        final currentUnread = chatDoc.data()?['unreadCount_${widget.buyerId}'] ?? 0;
+        
+        transaction.update(chatRef, {
+          'lastMessage': imageUrl != null ? '📷 Image' : messageText,
+          'lastMessageTime': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+          'unreadCount_${widget.buyerId}': FieldValue.increment(1), // Increment buyer's unread count
+          'lastMessageSenderId': user!.uid, // Track who sent the last message
+        });
       });
       
       // Send notification to buyer if not sending to self
@@ -201,6 +234,14 @@ class _VendorChatDetailScreenState extends State<VendorChatDetailScreen> {
           } else {
             debugPrint('Buyer FCM token not found');
           }
+          // Also try OneSignal via NotificationService for better reliability
+          await NotificationService().sendChatNotification(
+            recipientUserId: widget.buyerId,
+            senderName: user!.displayName ?? 'Vendor',
+            message: imageUrl != null ? '📷 Image' : messageText,
+            chatId: widget.chatId,
+            bundleId: widget.bundleId,
+          );
         } catch (e, stack) {
           debugPrint('Error sending FCM notification: $e');
           debugPrint('Stack trace: $stack');
@@ -241,40 +282,6 @@ class _VendorChatDetailScreenState extends State<VendorChatDetailScreen> {
     }
   }
 
-  Future<void> _updateStatus(String status) async {
-    if (activeOrderId == null) return;
-    
-    final batch = FirebaseFirestore.instance.batch();
-    final now = FieldValue.serverTimestamp();
-    
-    // Update transaction status
-    final txRef = FirebaseFirestore.instance.collection('transactions').doc(activeOrderId);
-    batch.update(txRef, {
-      'status': status,
-      'updatedAt': now,
-    });
-    
-    // Update chat status
-    final chatRef = FirebaseFirestore.instance.collection('chats').doc(widget.chatId);
-    batch.update(chatRef, {
-      'status': status,
-      'updatedAt': now,
-    });
-    
-    try {
-      await batch.commit();
-    setState(() {
-      orderStatus = status;
-    });
-    } catch (e) {
-      debugPrint('Error updating status: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to update status. Please try again.')),
-        );
-      }
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -307,7 +314,31 @@ class _VendorChatDetailScreenState extends State<VendorChatDetailScreen> {
                         final data = chatSnap.data!.data() as Map<String, dynamic>?;
                         final recipient = data?['recipientNumber'] ?? '';
                         return recipient.isNotEmpty
-                          ? Text('Recipient: $recipient', style: const TextStyle(fontWeight: FontWeight.bold))
+                          ? Row(
+                              children: [
+                                const Icon(Icons.phone_iphone, size: 16, color: Colors.blueGrey),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    'Recipient: $recipient',
+                                    style: const TextStyle(fontWeight: FontWeight.bold),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                IconButton(
+                                  tooltip: 'Copy number',
+                                  icon: const Icon(Icons.copy, size: 18),
+                                  onPressed: () async {
+                                    await Clipboard.setData(ClipboardData(text: recipient));
+                                    if (mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('Recipient number copied')),
+                                      );
+                                    }
+                                  },
+                                ),
+                              ],
+                            )
                           : const SizedBox();
                       },
                     ),
@@ -322,6 +353,9 @@ class _VendorChatDetailScreenState extends State<VendorChatDetailScreen> {
                       }
                       final chatData = chatSnap.data!.data() as Map<String, dynamic>?;
                       String chatStatus = chatData?['status'] ?? 'pending';
+                      final vendorId = chatData?['vendorId'] as String?;
+                      final isVendor = user != null && vendorId != null && user!.uid == vendorId;
+                      
                       return Row(
                     children: [
                       const Text('Order Status: '),
@@ -337,64 +371,97 @@ class _VendorChatDetailScreenState extends State<VendorChatDetailScreen> {
                         ),
                       ),
                       const SizedBox(width: 12),
-                      DropdownButton<String>(
+                      // Only show dropdown if user is the vendor, otherwise show read-only status
+                      if (isVendor)
+                        (chatStatus == 'completed'
+                          ? Chip(
+                              label: const Text('COMPLETED'),
+                              backgroundColor: Colors.grey,
+                              labelStyle: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            )
+                          : DropdownButton<String>(
                             value: chatStatus,
                         items: const [
                           DropdownMenuItem(value: 'pending', child: Text('Pending')),
                           DropdownMenuItem(value: 'processing', child: Text('Processing')),
                           DropdownMenuItem(value: 'data_sent', child: Text('Data Sent')),
-                              // No 'completed' option for vendor
                         ],
                             onChanged: (val) async {
-                              if (val != null) {
+                              if (val != null && user != null) {
                                 try {
-                                final batch = FirebaseFirestore.instance.batch();
-                                final chatRef = FirebaseFirestore.instance.collection('chats').doc(widget.chatId);
-                                final now = FieldValue.serverTimestamp();
+                                  // Verify user is still the vendor
+                                  final chatRef = FirebaseFirestore.instance.collection('chats').doc(widget.chatId);
                                   final chatDoc = await chatRef.get();
-                                  final chatData = chatDoc.data() as Map<String, dynamic>?;
-                                
-                                // Update chat status
-                                batch.update(chatRef, {
-                                  'status': val,
-                                  'updatedAt': now,
-                                });
-                                
-                                  // Only create/update transaction when marking as completed
-                                  if (val == 'completed' && chatData != null) {
-                                    final txRef = FirebaseFirestore.instance.collection('transactions').doc();
-                                    final txId = txRef.id;
-                                    
-                                    // Create the transaction document
-                                    batch.set(txRef, {
-                                      'id': txId,
-                                      'userId': widget.buyerId,
-                                      'vendorId': user!.uid,
-                                      'type': 'bundle_purchase',
-                                      'amount': bundleInfo?['price'] ?? 0,
-                                      'status': 'completed',
-                                      'bundleId': widget.bundleId,
-                                      'provider': bundleInfo?['provider']?.toString().split('.').last ?? 'unknown',
-                                      'dataAmount': bundleInfo?['dataAmount'] ?? 0,
-                                      'recipientNumber': chatData['recipientNumber'] ?? '',
-                                      'createdAt': now,
-                                    'updatedAt': now,
-                                      'completedBy': user!.uid,
-                                      'completedAt': now,
-                                    });
-                                    
-                                    // Update chat with the new transaction ID
-                                    batch.update(chatRef, {
-                                      'activeOrderId': txId,
-                                    });
-                                    
-                                    // Update local state
+                                  
+                                  if (!chatDoc.exists) {
                                     if (mounted) {
-                                      setState(() {
-                                        activeOrderId = txId;
-                                      });
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('Chat document not found.')),
+                                      );
                                     }
-                                }
+                                    return;
+                                  }
+                                  
+                                  final currentChatData = chatDoc.data() as Map<String, dynamic>?;
+                                  final currentVendorId = currentChatData?['vendorId'];
+                                  final currentBuyerId = currentChatData?['buyerId'];
+                                  
+                                  debugPrint('Chat Status Update - Chat ID: ${widget.chatId}');
+                                  debugPrint('Current User UID: ${user!.uid}');
+                                  debugPrint('Chat vendorId: $currentVendorId (type: ${currentVendorId.runtimeType})');
+                                  debugPrint('Chat buyerId: $currentBuyerId (type: ${currentBuyerId.runtimeType})');
+                                  
+                                  // Check if vendorId is a valid string and matches
+                                  if (currentVendorId == null || currentVendorId.toString().isEmpty) {
+                                    debugPrint('ERROR: vendorId is null or empty in chat document');
+                                    if (mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('Chat is missing vendor information. Cannot update status.')),
+                                      );
+                                    }
+                                    return;
+                                  }
+                                  
+                                  if (currentVendorId.toString() != user!.uid) {
+                                    debugPrint('ERROR: vendorId mismatch - Chat vendorId: $currentVendorId, Current user: ${user!.uid}');
+                                    if (mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('You are not authorized to update this chat status.')),
+                                      );
+                                    }
+                                    return;
+                                  }
+                                  
+                                  debugPrint('Vendor verification passed. Proceeding with status update...');
+                                  
+                                  final batch = FirebaseFirestore.instance.batch();
+                                  final now = FieldValue.serverTimestamp();
+                                    
+                                  // Update chat status (pending, processing, or data_sent)
+                                  batch.update(chatRef, {
+                                    'status': val,
+                                    'updatedAt': now,
+                                  });
+                                  
+                                  // If transaction exists, also update transaction status
+                                  if (activeOrderId != null && activeOrderId!.isNotEmpty) {
+                                    try {
+                                      final txRef = FirebaseFirestore.instance.collection('transactions').doc(activeOrderId);
+                                      final txDoc = await txRef.get();
+                                      if (txDoc.exists) {
+                                        batch.update(txRef, {
+                                          'status': val,
+                                          'updatedAt': now,
+                                        });
+                                      }
+                                    } catch (e) {
+                                      debugPrint('Error checking transaction: $e');
+                                      // Continue with chat update even if transaction check fails
+                                    }
+                                  }
                                 
                                 await batch.commit();
                                   
@@ -404,17 +471,35 @@ class _VendorChatDetailScreenState extends State<VendorChatDetailScreen> {
                                       orderStatus = val;
                                     });
                                   }
-                                } catch (e) {
+                                } catch (e, stackTrace) {
                                   debugPrint('Error updating status: $e');
+                                  debugPrint('Stack trace: $stackTrace');
+                                  String errorMessage = 'Failed to update status. Please try again.';
+                                  
+                                  final errorStr = e.toString().toLowerCase();
+                                  if (errorStr.contains('permission_denied') || errorStr.contains('permission-denied')) {
+                                    errorMessage = 'Permission denied. Verify you are the vendor for this chat.\n'
+                                        'Chat ID: ${widget.chatId}\n'
+                                        'Your UID: ${user!.uid}';
+                                    debugPrint('PERMISSION DENIED - Chat vendorId may not match current user UID');
+                                  } else if (errorStr.contains('not-found')) {
+                                    errorMessage = 'Chat or transaction document not found.';
+                                  } else {
+                                    errorMessage = 'Error: ${e.toString()}';
+                                  }
+                                  
                                   if (mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text('Failed to update status. Please try again.')),
+                                      SnackBar(
+                                        content: Text(errorMessage),
+                                        duration: const Duration(seconds: 5),
+                                      ),
                                     );
                                   }
                                 }
                               }
                         },
-                      ),
+                      )),
                     ],
                       );
                     },

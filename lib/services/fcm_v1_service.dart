@@ -144,7 +144,7 @@ class FCMV1Service {
       final androidConfig = fcm.AndroidConfig()
         ..priority = 'high'
         ..notification = fcm.AndroidNotification(
-          channelId: 'high_importance_channel',
+          channelId: 'chat_notifications',
           sound: sound,
           clickAction: clickAction ?? 'FLUTTER_NOTIFICATION_CLICK',
           tag: 'chat_${DateTime
@@ -328,14 +328,13 @@ class FCMV1Service {
     } catch (e) {
       debugPrint('Error refreshing FCM token: $e');
       rethrow;
+    }
   }
 }
 
 // Background handler
 @pragma('vm:entry-point')
-  Future<void> _firebaseMessagingBackgroundHandler(
-      RemoteMessage message) async {
+Future<void> fcmV1MessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
   debugPrint('Background message: ${message.messageId}');
-  }
 }

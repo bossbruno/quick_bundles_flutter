@@ -17,6 +17,31 @@
         android:fullBackupContent="@xml/backup_rules"
         android:requestLegacyExternalStorage="true"
         android:usesCleartextTraffic="false">
+        
+        <!-- Firebase configuration -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_qb"/>
+            
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="@string/default_notification_channel_id"/>
+            
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/colorAccent"/>
+            
+        <meta-data
+            android:name="firebase_messaging_auto_init_enabled"
+            android:value="true" />
+            
+        <meta-data
+            android:name="firebase_analytics_collection_enabled"
+            android:value="true" />
+            
+        <meta-data
+            android:name="firebase_crashlytics_collection_enabled"
+            android:value="true" />
         <activity
             android:name="com.theden.quickbundles.MainActivity"
             android:exported="true"
@@ -46,9 +71,6 @@
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
             android:value="ca-app-pub-1041515975395910~3672754066"/>
-        <meta-data
-            android:name="com.google.firebase.messaging.default_notification_icon"
-            android:resource="@drawable/ic_stat_qb"/>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

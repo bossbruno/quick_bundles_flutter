@@ -1,8 +1,6 @@
 import 'dart:async';
-
 import 'package:flutter/material.dart';
-
-import '../main.dart';
+import 'package:quick_bundles_flutter/main.dart';
 
 class MTNPage extends StatefulWidget {
   const MTNPage({super.key});
@@ -14,27 +12,45 @@ class MTNPage extends StatefulWidget {
 class _MTNPageState extends State<MTNPage> {
   @override
   void initState() {
-    // TODO: implement initState
     super.initState();
     Timer(
-        const Duration(seconds: 1),
-            () => Navigator.of(context).pushReplacement(MaterialPageRoute(
-            builder: (BuildContext context) => const HomePage())));
+      const Duration(milliseconds: 500),
+      () {
+        if (mounted) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (context) => const HomePage(),
+            ),
+          );
+        }
+      },
+    );
   }
-
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: SafeArea(
+      body: Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+        ),
         child: Center(
-              child: SingleChildScrollView(
-                child: Column(
-                  children: <Widget>[Image.asset('assets/img_2.png')],
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // Full-screen image
+                Image.asset(
+                  'assets/img_2.png',
+                  fit: BoxFit.cover,
+                  width: double.infinity,
+                  height: MediaQuery.of(context).size.height,
                 ),
-              ),
+              ],
             ),
           ),
+        ),
+      ),
     );
   }
 }

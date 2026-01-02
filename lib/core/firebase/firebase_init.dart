@@ -8,41 +8,57 @@ import '../../firebase_options.dart';
 class FirebaseInit {
   static bool _initialized = false;
   static bool get isInitialized => _initialized;
+  static FirebaseApp? _firebaseApp;
 
-  static Future<void> initialize() async {
-    if (_initialized) return;
+  static Future<FirebaseApp> initialize() async {
+    if (_initialized && _firebaseApp != null) return _firebaseApp!;
     
     try {
       WidgetsFlutterBinding.ensureInitialized();
       
+      // Initialize Firebase only if it hasn't been initialized yet
       if (Firebase.apps.isEmpty) {
-        await Firebase.initializeApp(
-          name: 'quick-bundles',
+        _firebaseApp = await Firebase.initializeApp(
           options: DefaultFirebaseOptions.currentPlatform,
         );
+      } else {
+        _firebaseApp = Firebase.app();
       }
 
       // Configure Firestore with offline persistence
       try {
+        await FirebaseFirestore.instance.terminate();
+        await FirebaseFirestore.instance.clearPersistence();
+        
         FirebaseFirestore.instance.settings = const Settings(
           persistenceEnabled: true,
           cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+          sslEnabled: true,
         );
+        
+        if (kDebugMode) {
+          print('✅ Firestore persistence configured');
+        }
       } catch (e) {
         if (kDebugMode) {
-          print('Firestore settings warning: $e');
+          print('⚠️ Firestore settings warning: $e');
         }
       }
 
-      // Configure Firebase Auth persistence
+      // Force a check of the current user to warm up the auth state
       try {
-        await FirebaseAuth.instance.setPersistence(Persistence.LOCAL);
+        final user = FirebaseAuth.instance.currentUser;
         if (kDebugMode) {
-          print('✅ Firebase Auth persistence enabled');
+          print('🔍 Initial auth check - User: ${user?.uid ?? 'null'}');
+          if (user != null) {
+            print('   Email: ${user.email}');
+            print('   Email verified: ${user.emailVerified}');
+            print('   Last sign-in: ${user.metadata.lastSignInTime}');
+          }
         }
       } catch (e) {
         if (kDebugMode) {
-          print('Firebase Auth persistence warning: $e');
+          print('⚠️ Initial auth check failed: $e');
         }
       }
 
@@ -50,10 +66,24 @@ class FirebaseInit {
       if (kDebugMode) {
         print('✅ Firebase initialized successfully');
       }
+      
+      return _firebaseApp!;
     } catch (e) {
       _initialized = false;
       if (kDebugMode) {
         print('❌ Firebase initialization failed: $e');
+      }
+      // If we get here, we need to ensure we still return a FirebaseApp instance
+      // by falling back to the default app or initializing a new one
+      try {
+        _firebaseApp = Firebase.app();
+        return _firebaseApp!;
+      } catch (_) {
+        // If we can't get the default app, try initializing with default options
+        _firebaseApp = await Firebase.initializeApp(
+          options: DefaultFirebaseOptions.currentPlatform,
+        );
+        return _firebaseApp!;
       }
     }
   }

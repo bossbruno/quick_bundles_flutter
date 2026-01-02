@@ -4,6 +4,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
+import 'package:quick_bundles_flutter/services/auth_service.dart';
+import 'package:quick_bundles_flutter/screens/email_verification_screen.dart';
 
 enum UserType { user, vendor }
 
@@ -72,6 +74,112 @@ class _SignupScreenState extends State<SignupScreen> {
     }
   }
 
+  void _showVerificationDialog(String email) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.email, color: Colors.blue, size: 24),
+            SizedBox(width: 10),
+            Text('Verify Your Email'),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'We\'ve sent a verification email to:',
+                style: Theme.of(context).textTheme.bodyLarge,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                email,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                  color: Colors.blue,
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'To complete your registration and access all features, please verify your email address by clicking the link in the email we just sent you.',
+                style: TextStyle(fontSize: 15),
+              ),
+              const SizedBox(height: 20),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue.shade200),
+                ),
+                child: const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.info_outline, color: Colors.blue, size: 20),
+                        SizedBox(width: 8),
+                        Text(
+                          'Check Your Spam/Junk Folder',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue,
+                            fontSize: 15,
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 8),
+                    Text(
+                      'If you don\'t see our email, please check your spam or junk folder. Sometimes our verification emails end up there by mistake.',
+                      style: TextStyle(fontSize: 14),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+          TextButton(
+            onPressed: () async {
+              try {
+                await AuthService().sendVerificationEmail();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Verification email resent. Please check your inbox.'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Error resending verification email: ${e.toString()}'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            },
+            child: const Text('Resend Email'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _emailController.dispose();
@@ -93,10 +201,26 @@ class _SignupScreenState extends State<SignupScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // Create user account
-      final userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
-        email: _emailController.text.trim(),
-        password: _passwordController.text,
+      final authService = AuthService();
+      final email = _emailController.text.trim();
+      final password = _passwordController.text;
+      
+      // First, check if email already exists
+      try {
+        final methods = await FirebaseAuth.instance.fetchSignInMethodsForEmail(email);
+        if (methods.isNotEmpty) {
+          throw AuthException('An account already exists with this email address.');
+        }
+      } on FirebaseAuthException catch (e) {
+        if (e.code != 'invalid-email') rethrow;
+      }
+      
+      // Create user account using AuthService
+      final userCredential = await authService.signUpWithEmailAndPassword(
+        email: email,
+        password: password,
+        name: _nameController.text.trim(),
+        phoneNumber: _phoneController.text.trim(),
       );
 
       // Upload Ghana Card image if present
@@ -106,14 +230,15 @@ class _SignupScreenState extends State<SignupScreen> {
       }
 
       // Prepare user data
-      final userData = {
+      final userData = <String, dynamic>{
         'name': _nameController.text.trim(),
-        'email': _emailController.text.trim(),
+        'email': email,
         'phone': _phoneController.text.trim(),
         'userType': _selectedUserType.toString().split('.').last,
         'createdAt': FieldValue.serverTimestamp(),
         'ghanaCardNumber': _ghanaCardController.text.trim(),
-        'isVerified': _selectedUserType == UserType.user, // Users are auto-verified
+        'emailVerified': false,
+        'isVerified': _selectedUserType == UserType.user,
       };
 
       // Add Ghana Card image URL if uploaded
@@ -132,34 +257,36 @@ class _SignupScreenState extends State<SignupScreen> {
         });
       }
 
-      // Save user data to Firestore
+      // Save additional user data to Firestore
       await FirebaseFirestore.instance
           .collection('users')
           .doc(userCredential.user!.uid)
-          .set(userData);
+          .set(userData, SetOptions(merge: true));
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Account created successfully!')),
-        );
-        Navigator.pop(context); // Return to login screen
-      }
-    } on FirebaseAuthException catch (e) {
-      String message = 'An error occurred during sign up';
-      if (e.code == 'weak-password') {
-        message = 'The password provided is too weak.';
-      } else if (e.code == 'email-already-in-use') {
-        message = 'An account already exists for that email.';
-      }
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(message)),
-        );
+        // Show verification dialog
+        _showVerificationDialog(email);
       }
     } catch (e) {
+      String errorMessage = 'An error occurred during sign up';
+      if (e is FirebaseAuthException) {
+        if (e.code == 'weak-password') {
+          errorMessage = 'The password provided is too weak.';
+        } else if (e.code == 'email-already-in-use') {
+          errorMessage = 'An account already exists for that email.';
+        } else if (e.code == 'invalid-email') {
+          errorMessage = 'The email address is not valid.';
+        }
+      } else if (e is AuthException) {
+        errorMessage = e.message;
+      }
+      
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
+          SnackBar(
+            content: Text(errorMessage),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {

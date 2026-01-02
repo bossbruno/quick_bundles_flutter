@@ -7,6 +7,18 @@ class ListingRepository {
   final NetworkService _networkService = NetworkService();
   final String _collection = 'listings';
 
+  // Map enum to Firestore string used by rules
+  String _statusToString(ListingStatus status) {
+    switch (status) {
+      case ListingStatus.ACTIVE:
+        return 'active';
+      case ListingStatus.INACTIVE:
+        return 'inactive';
+      case ListingStatus.COMPLETED:
+        return 'sold';
+    }
+  }
+
   // Cache for listings
   List<BundleListing>? _cachedListings;
   DateTime? _lastFetchTime;
@@ -16,7 +28,7 @@ class ListingRepository {
   Stream<List<BundleListing>> getActiveListings() {
     return _firestore
         .collection(_collection)
-        .where('status', isEqualTo: ListingStatus.ACTIVE.toString().split('.').last)
+        .where('status', whereIn: ['active', 'ACTIVE'])
         .orderBy('price')
         .snapshots()
         .map((snapshot) {
@@ -63,7 +75,7 @@ class ListingRepository {
 
     Query query = _firestore
         .collection(_collection)
-        .where('status', isEqualTo: ListingStatus.ACTIVE.toString().split('.').last)
+        .where('status', whereIn: ['active', 'ACTIVE'])
         .limit(limit);
 
     if (lastDocument != null) {
@@ -109,7 +121,10 @@ class ListingRepository {
         _cachedListings!.add(listing);
       }
 
-      DocumentReference doc = await _firestore.collection(_collection).add(listing.toMap());
+      // Convert to map - updatedAt is already set in the listing object
+      final data = listing.toMap();
+      
+      DocumentReference doc = await _firestore.collection(_collection).add(data);
       
       // Update cache with the new ID
       if (_cachedListings != null) {
@@ -190,7 +205,7 @@ class ListingRepository {
       }
 
       await _firestore.collection(_collection).doc(id).update({
-        'status': status.toString().split('.').last,
+        'status': _statusToString(status),
         'updatedAt': FieldValue.serverTimestamp(),
       });
     } catch (e) {

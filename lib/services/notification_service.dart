@@ -3,23 +3,53 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'dart:convert';
+import 'dart:async';
 import 'package:get/get.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'shared_preference_service.dart';
 import 'package:flutter/material.dart';
 import 'onesignal_service.dart';
+import 'fcm_service.dart';
+import '../features/chat/screens/chat_screen.dart';
+import '../features/chat/screens/vendor_chat_detail_screen.dart';
 
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
   factory NotificationService() => _instance;
   NotificationService._internal();
 
+  // Global navigator key for deep-link navigation
+  static final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
   final FirebaseMessaging _firebaseMessaging = FirebaseMessaging.instance;
   final FlutterLocalNotificationsPlugin _localNotifications = FlutterLocalNotificationsPlugin();
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
+  // Track chat message listeners and last notified message per chat to avoid duplicates
+  final Map<String, StreamSubscription<QuerySnapshot>> _chatMessageSubs = {};
+  final Map<String, String> _lastNotifiedMessageId = {};
+
+  StreamSubscription<User?>? _authStateSub;
+  StreamSubscription<QuerySnapshot>? _buyerChatsSub;
+  StreamSubscription<QuerySnapshot>? _vendorChatsSub;
+
+  bool _buyerChatsLoaded = false;
+  bool _vendorChatsLoaded = false;
+  String? _localListenersUserId;
+  final Map<String, String> _lastNotifiedChatStatus = {};
+  bool _initialized = false;
+
   // Notification channels for Android
+  static const AndroidNotificationChannel _defaultChannel = AndroidNotificationChannel(
+    'quick_bundles_notifications',
+    'General Notifications',
+    description: 'Default notifications channel',
+    importance: Importance.defaultImportance,
+    playSound: true,
+    enableVibration: true,
+  );
   static const AndroidNotificationChannel _channel = AndroidNotificationChannel(
     'chat_notifications',
     'Chat Notifications',
@@ -40,6 +70,9 @@ class NotificationService {
 
   Future<void> initialize() async {
     try {
+      if (_initialized) return;
+      _initialized = true;
+
       // Request permission for iOS
       NotificationSettings settings = await _firebaseMessaging.requestPermission(
         alert: true,
@@ -54,6 +87,174 @@ class NotificationService {
       if (kDebugMode) {
         print('User granted permission: ${settings.authorizationStatus}');
       }
+
+  // Local notifications fallback: watch chats the user participates in and notify on new incoming messages
+  Future<void> _startChatLocalNotificationListeners() async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return;
+
+    if (_localListenersUserId != null && _localListenersUserId == userId) {
+      return;
+    }
+
+    await _stopChatLocalNotificationListeners();
+    _localListenersUserId = userId;
+    _buyerChatsLoaded = false;
+    _vendorChatsLoaded = false;
+
+    // Helper to attach a messages listener for a chat
+    Future<void> _attachForChat(String chatId, String otherPartyName) async {
+      if (_chatMessageSubs.containsKey(chatId)) return;
+      final sub = _firestore
+          .collection('chats')
+          .doc(chatId)
+          .collection('messages')
+          .orderBy('timestamp', descending: true)
+          .limit(1)
+          .snapshots()
+          .listen((snapshot) async {
+        if (snapshot.docs.isEmpty) return;
+        final doc = snapshot.docs.first;
+        final data = doc.data();
+        final senderId = data['senderId']?.toString();
+        final text = (data['text']?.toString() ?? '').trim();
+        final imageUrl = data['imageUrl']?.toString();
+        final messageId = doc.id;
+
+        // Prime last message id on first attach to avoid notifying on historical messages
+        if (!_lastNotifiedMessageId.containsKey(chatId)) {
+          _lastNotifiedMessageId[chatId] = messageId;
+          return;
+        }
+
+        // Ignore if from self or already notified
+        if (senderId == userId) return;
+        if (senderId == null || senderId.isEmpty || senderId == 'system') return;
+        if (_lastNotifiedMessageId[chatId] == messageId) return;
+        _lastNotifiedMessageId[chatId] = messageId;
+
+        // Show local notification
+        final body = (imageUrl != null && imageUrl.isNotEmpty) ? '📷 Image' : (text.isNotEmpty ? text : 'New message');
+        await showLocalChatNotification(
+          title: 'New message from $otherPartyName',
+          body: body,
+          // Pass a JSON payload so tap can deep-link to the chat
+          payload: jsonEncode({
+            'type': 'chat',
+            'chatId': chatId,
+          }),
+        );
+      });
+      _chatMessageSubs[chatId] = sub;
+    }
+
+    // Listen to chats where user is buyer
+    _buyerChatsSub = _firestore
+        .collection('chats')
+        .where('buyerId', isEqualTo: userId)
+        .snapshots()
+        .listen((snap) async {
+      if (!_buyerChatsLoaded) {
+        for (final doc in snap.docs) {
+          final data = doc.data() as Map<String, dynamic>;
+          final status = (data['status'] ?? 'pending').toString();
+          _lastNotifiedChatStatus[doc.id] = status;
+        }
+        _buyerChatsLoaded = true;
+      }
+
+      if (_buyerChatsLoaded) {
+        for (final change in snap.docChanges) {
+          final data = change.doc.data() as Map<String, dynamic>?;
+          if (data == null) continue;
+          final status = (data['status'] ?? 'pending').toString();
+          final prev = _lastNotifiedChatStatus[change.doc.id];
+          _lastNotifiedChatStatus[change.doc.id] = status;
+
+          if (change.type == DocumentChangeType.modified && prev != null && prev != status) {
+            await showLocalOrderNotification(
+              title: 'Order update',
+              body: 'Status: ${status.replaceAll('_', ' ').toUpperCase()}',
+              payload: jsonEncode({
+                'type': 'order',
+                'chatId': change.doc.id,
+              }),
+            );
+          }
+        }
+      }
+
+      for (final doc in snap.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        final vendorId = data['vendorId']?.toString();
+        String otherName = 'Vendor';
+        try {
+          if (vendorId != null) {
+            final vd = await _firestore.collection('users').doc(vendorId).get();
+            final vdata = vd.data();
+            otherName = (vdata?['businessName'] ?? vdata?['name'] ?? 'Vendor').toString();
+          }
+        } catch (_) {}
+        await _attachForChat(doc.id, otherName);
+      }
+    });
+
+    // Listen to chats where user is vendor
+    _vendorChatsSub = _firestore
+        .collection('chats')
+        .where('vendorId', isEqualTo: userId)
+        .where('status', isNotEqualTo: 'completed')  // Exclude completed chats
+        .snapshots()
+        .listen((snap) async {
+      if (!_vendorChatsLoaded) {
+        // Initial load - track existing chat IDs but don't notify
+        for (final doc in snap.docs) {
+          _lastNotifiedChatStatus[doc.id] = (doc.data()['status'] ?? 'pending').toString();
+        }
+        _vendorChatsLoaded = true;
+      } else {
+        // Only notify for newly added chats
+        for (final change in snap.docChanges) {
+          if (change.type != DocumentChangeType.added) continue;
+          final data = change.doc.data() as Map<String, dynamic>?;
+          if (data == null) continue;
+          
+          // Skip if this is a completed chat
+          final status = (data['status'] ?? 'pending').toString();
+          if (status == 'completed') continue;
+          
+          final buyerName = (data['buyerName'] ?? 'Buyer').toString();
+          final lastMessage = (data['lastMessage'] ?? 'New order started').toString();
+          await showLocalOrderNotification(
+            title: 'New order from $buyerName',
+            body: lastMessage,
+            payload: jsonEncode({
+              'type': 'order',
+              'chatId': change.doc.id,
+            }),
+          );
+        }
+      }
+
+      // Attach message listeners only for non-completed chats
+      for (final doc in snap.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        final status = (data['status'] ?? 'pending').toString();
+        if (status == 'completed') continue; // Skip completed chats
+        
+        final buyerId = data['buyerId']?.toString();
+        String otherName = 'Buyer';
+        try {
+          if (buyerId != null) {
+            final bd = await _firestore.collection('users').doc(buyerId).get();
+            final bdata = bd.data();
+            otherName = (bdata?['name'] ?? 'Buyer').toString();
+          }
+        } catch (_) {}
+        await _attachForChat(doc.id, otherName);
+      }
+    });
+  }
 
       // Initialize local notifications
       await _initializeLocalNotifications();
@@ -78,7 +279,7 @@ class NotificationService {
       FirebaseMessaging.onMessage.listen((message) => handleForegroundMessage(message));
 
       // Handle background messages
-      FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+      FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
       // Handle notification taps
       FirebaseMessaging.onMessageOpenedApp.listen(_onMessageOpenedApp);
@@ -86,11 +287,41 @@ class NotificationService {
       if (kDebugMode) {
         print('Notification service initialized successfully');
       }
+
+      // Start local notification listeners for chat messages as a fallback when remote push is unavailable
+      _startChatLocalNotificationListeners();
+
+      _authStateSub ??= _auth.authStateChanges().listen((user) async {
+        if (user == null) {
+          await _stopChatLocalNotificationListeners();
+        } else {
+          await _startChatLocalNotificationListeners();
+        }
+      });
     } catch (e) {
       if (kDebugMode) {
         print('Failed to initialize notification service: $e');
       }
     }
+  }
+
+  Future<void> _stopChatLocalNotificationListeners() async {
+    try {
+      await _buyerChatsSub?.cancel();
+      await _vendorChatsSub?.cancel();
+      _buyerChatsSub = null;
+      _vendorChatsSub = null;
+
+      for (final sub in _chatMessageSubs.values) {
+        await sub.cancel();
+      }
+      _chatMessageSubs.clear();
+      _lastNotifiedMessageId.clear();
+      _lastNotifiedChatStatus.clear();
+      _localListenersUserId = null;
+      _buyerChatsLoaded = false;
+      _vendorChatsLoaded = false;
+    } catch (_) {}
   }
 
   Future<void> _initializeLocalNotifications() async {
@@ -131,6 +362,10 @@ class NotificationService {
     );
 
     // Create notification channels for Android
+    await _localNotifications
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(_defaultChannel);
+
     await _localNotifications
         .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
         ?.createNotificationChannel(_channel);
@@ -271,9 +506,98 @@ class NotificationService {
   }
 
   void _handleNotificationTap(String? payload) {
-    // This will be implemented to navigate to the appropriate chat screen
     if (kDebugMode) {
       print('Notification tapped with payload: $payload');
+    }
+    try {
+      Map<String, dynamic> data = {};
+      if (payload != null && payload.isNotEmpty) {
+        // Try JSON first
+        try {
+          final decoded = jsonDecode(payload);
+          if (decoded is Map) {
+            data = Map<String, dynamic>.from(decoded as Map);
+          }
+        } catch (_) {
+          // Fallback: key=value map toString parsing
+          if (payload.startsWith('{') && payload.endsWith('}')) {
+            final inner = payload.substring(1, payload.length - 1);
+            for (final pair in inner.split(',')) {
+              final kv = pair.split(':');
+              if (kv.length >= 2) {
+                data[kv[0].trim()] = kv.sublist(1).join(':').trim();
+              }
+            }
+          }
+        }
+      }
+
+      final type = (data['type'] ?? data['category'] ?? '').toString().toLowerCase();
+      final chatId = data['chatId']?.toString();
+      if ((type.contains('chat') || type.contains('order')) && chatId != null && chatId.isNotEmpty) {
+        navigateToChatById(chatId);
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error handling notification payload: $e');
+      }
+    }
+  }
+
+  // Public: navigate into chat by chatId (buyer or vendor)
+  Future<void> navigateToChatById(String chatId) async {
+    try {
+      final chatDoc = await FirebaseFirestore.instance.collection('chats').doc(chatId).get();
+      if (!chatDoc.exists) return;
+      final data = chatDoc.data() as Map<String, dynamic>;
+      final userId = _auth.currentUser?.uid;
+      if (userId == null) return;
+
+      final buyerId = data['buyerId']?.toString();
+      final vendorId = data['vendorId']?.toString();
+      final bundleId = data['bundleId']?.toString() ?? '';
+      final recipientNumber = data['recipientNumber']?.toString() ?? '';
+
+      if (userId == buyerId) {
+        // Load vendor name for UI
+        String businessName = 'Vendor';
+        try {
+          if (vendorId != null) {
+            final vendorDoc = await FirebaseFirestore.instance.collection('users').doc(vendorId).get();
+            if (vendorDoc.exists) {
+              final vd = vendorDoc.data() as Map<String, dynamic>?;
+              businessName = vd?['businessName'] ?? vd?['name'] ?? 'Vendor';
+            }
+          }
+        } catch (_) {}
+
+        navigatorKey.currentState?.push(
+          MaterialPageRoute(
+            builder: (_) => ChatScreen(
+              chatId: chatId,
+              vendorId: vendorId ?? '',
+              bundleId: bundleId,
+              businessName: businessName,
+              recipientNumber: recipientNumber,
+            ),
+          ),
+        );
+      } else if (userId == vendorId && buyerId != null) {
+        navigatorKey.currentState?.push(
+          MaterialPageRoute(
+            builder: (_) => VendorChatDetailScreen(
+              chatId: chatId,
+              buyerId: buyerId,
+              buyerName: '',
+              bundleId: bundleId,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Failed to navigate to chat: $e');
+      }
     }
   }
 
@@ -282,7 +606,14 @@ class NotificationService {
     if (kDebugMode) {
       print('Notification opened from background: ${message.data}');
     }
-    // If you use a payload key, extract it; otherwise, pass the whole data map or adjust as needed
+    // Prefer direct data
+    final data = message.data;
+    final chatId = data['chatId'] ?? data['chat_id'];
+    final type = (data['type'] ?? '').toString().toLowerCase();
+    if (chatId != null && type.contains('chat')) {
+      navigateToChatById(chatId.toString());
+      return;
+    }
     _handleNotificationTap(message.data['payload']);
   }
 
@@ -318,6 +649,40 @@ class NotificationService {
           presentSound: true,
         ),
       ),
+      payload: payload,
+    );
+  }
+
+  Future<void> showLocalOrderNotification({
+    required String title,
+    required String body,
+    String? payload,
+  }) async {
+    await _localNotifications.show(
+      DateTime.now().millisecondsSinceEpoch.hashCode,
+      title,
+      body,
+      NotificationDetails(
+        android: AndroidNotificationDetails(
+          _orderChannel.id,
+          _orderChannel.name,
+          channelDescription: _orderChannel.description,
+          icon: '@mipmap/ic_launcher',
+          priority: Priority.high,
+          importance: Importance.high,
+          showWhen: true,
+          when: DateTime.now().millisecondsSinceEpoch,
+          autoCancel: true,
+          enableVibration: true,
+          playSound: true,
+        ),
+        iOS: const DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
+        ),
+      ),
+      payload: payload,
     );
   }
 

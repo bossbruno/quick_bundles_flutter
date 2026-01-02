@@ -9,18 +9,36 @@ class DatabaseService {
   CollectionReference get transactionsCollection => _db.collection('transactions');
   CollectionReference get bundlesCollection => _db.collection('bundles');
 
-  // Create new user document
-  Future<void> createUserDocument(User user, {String? name, String? phoneNumber}) async {
-    await usersCollection.doc(user.uid).set({
+  // Create or update user document
+  Future<void> createUserDocument(
+    User user, {
+    String? name, 
+    String? phoneNumber,
+    bool? emailVerified,
+  }) async {
+    final userData = {
       'email': user.email,
-      'name': name ?? '',
-      'phoneNumber': phoneNumber ?? '',
-      'createdAt': Timestamp.now(),
+      'name': name ?? user.displayName ?? '',
+      'phoneNumber': phoneNumber ?? user.phoneNumber ?? '',
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
       'balance': 0.0,
       'totalTransactions': 0,
-      'isVerified': false,
-      'lastLogin': Timestamp.now(),
-    });
+      'isVerified': emailVerified ?? user.emailVerified,
+      'emailVerified': emailVerified ?? user.emailVerified,
+      'lastLogin': FieldValue.serverTimestamp(),
+      'role': 'user', // Default role
+      'userType': 'user', // Default user type
+    };
+
+    // Use set with merge to avoid overwriting existing data
+    await usersCollection.doc(user.uid).set(userData, SetOptions(merge: true));
+  }
+  
+  // Check if user profile exists
+  Future<bool> doesUserProfileExist(String userId) async {
+    final doc = await usersCollection.doc(userId).get();
+    return doc.exists;
   }
 
   // Update user profile

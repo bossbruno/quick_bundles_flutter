@@ -6,76 +6,200 @@ import 'package:quick_bundles_flutter/VODAFONEpage/telecel_tab.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
-import 'package:quick_bundles_flutter/VODAFONEpage/VodafoneSplashPage.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'screens/auth_wrapper.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:google_fonts/google_fonts.dart';
+
+// Local imports
+import 'screens/auth_wrapper.dart';
+import 'VODAFONEpage/VodafoneSplashPage.dart';
 import 'services/favorites_service.dart';
 import 'core/firebase/firebase_init.dart';
-import 'features/auth/screens/login_screen.dart';
 import 'services/onesignal_service.dart';
 import 'services/fcm_v1_service.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
+import 'services/notification_service.dart';
 import 'AIRTELTIGOpage/at_tab.dart';
 import 'Ads_directory/ad_mob_service.dart';
+import 'services/auth_service.dart';
 
+// Initialize notifications plugin
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
 Future<void> main() async {
   try {
-    // Initialize Flutter bindings
-  WidgetsFlutterBinding.ensureInitialized();
+    // Ensure Flutter binding is initialized
+    WidgetsFlutterBinding.ensureInitialized();
+    
+    if (kDebugMode) {
+      print('🚀 Starting app initialization...');
+    }
 
-    // Load environment variables
-    await dotenv.load(fileName: ".env");
+    // 1. Load environment variables first
+    try {
+      await dotenv.load(fileName: ".env");
+      if (kDebugMode) {
+        print('✅ Environment variables loaded');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('⚠️ Failed to load environment variables: $e');
+      }
+    }
     
-    // Initialize SharedPreferences and FavoritesService
-    await FavoritesService().init();
+    // 2. Initialize Firebase with error handling
+    try {
+      await FirebaseInit.initialize();
+      if (kDebugMode) {
+        print('✅ Firebase initialized successfully');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Failed to initialize Firebase: $e');
+      }
+      // Continue running the app even if Firebase fails
+    }
     
-    // Debug print environment variables
+    // 3. Initialize AuthService and check/create user profile if needed
+    try {
+      final authService = AuthService();
+      await authService.checkAndCreateUserProfile();
+      if (kDebugMode) {
+        print('✅ User profile check completed');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('⚠️ User profile check failed: $e');
+      }
+    }
+    
+    // 4. Initialize notifications and messaging services
+    try {
+      await _initializeNotificationsAndAds();
+      
+      // Initialize OneSignal
+      await OneSignalService.initialize();
+      await NotificationService().saveOneSignalPlayerId();
+      
+      if (!kIsWeb) {
+        try {
+          final notificationService = NotificationService();
+          await notificationService.initialize();
+          
+          final fcmService = FCMV1Service();
+          await fcmService.initialize();
+          
+          if (kDebugMode) {
+            print('✅ FCM services initialized');
+          }
+        } catch (e) {
+          if (kDebugMode) {
+            print('⚠️ FCM initialization failed: $e');
+          }
+        }
+      }
+      
+      if (kDebugMode) {
+        print('✅ Notification services initialized');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('⚠️ Failed to initialize notification services: $e');
+      }
+    }
+    
+    // 5. Initialize Mobile Ads (non-blocking)
+    if (!kIsWeb) {
+      try {
+        await MobileAds.instance.initialize();
+        if (kDebugMode) {
+          print('✅ Mobile Ads initialized');
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          print('⚠️ Failed to initialize Mobile Ads: $e');
+        }
+      }
+    }
+    
+    // 6. Initialize SharedPreferences and FavoritesService
+    try {
+      await FavoritesService().init();
+      if (kDebugMode) {
+        print('✅ Favorites service initialized');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('⚠️ Failed to initialize Favorites service: $e');
+      }
+    }
+    
     if (kDebugMode) {
       print('Firebase Project ID: ${dotenv.env['FIREBASE_PROJECT_ID'] ?? 'Not found'}');
+      print('🚀 App initialization complete, running app...');
     }
-
-    // Initialize Firebase
-    await FirebaseInit.initialize();
-    
-    // Initialize Shared Preferences
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.reload();
-
-    // Initialize notifications
-    const AndroidInitializationSettings initializationSettingsAndroid = 
-        AndroidInitializationSettings('@mipmap/ic_launcher');
-    final DarwinInitializationSettings initializationSettingsIOS = 
-        DarwinInitializationSettings();
-  final InitializationSettings initializationSettings = InitializationSettings(
-    android: initializationSettingsAndroid,
-    iOS: initializationSettingsIOS,
-  );
-  await flutterLocalNotificationsPlugin.initialize(initializationSettings);
-
+     
     // Run the app
-  runApp(const MyApp());
-
-    // Initialize other services
-    unawaited(_initializeNotificationsAndAds());
-    unawaited(OneSignalService.initialize());
-    unawaited(FCMV1Service().initialize());
-    
-  } catch (e) {
+    runApp(const MyApp());
+  } catch (e, stackTrace) {
     if (kDebugMode) {
-      print('Error initializing app: $e');
+      print('❌ Fatal error during app initialization: $e');
+      print('Stack trace: $stackTrace');
     }
-    rethrow;
+    
+    // Show error UI
+    runApp(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, size: 64, color: Colors.red),
+                const SizedBox(height: 16),
+                const Text(
+                  'Failed to initialize app',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                const Text('Please restart the app or contact support if the problem persists.'),
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: () => main(),
+                  child: const Text('Try Again'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
 Future<void> _initializeNotificationsAndAds() async {
   try {
+    // Initialize local notifications
+    const AndroidInitializationSettings initializationSettingsAndroid =
+        AndroidInitializationSettings('@mipmap/ic_launcher');
+    
+    final DarwinInitializationSettings initializationSettingsIOS =
+        DarwinInitializationSettings(
+      requestSoundPermission: true,
+      requestBadgePermission: true,
+      requestAlertPermission: true,
+    );
+
+    final InitializationSettings initializationSettings = InitializationSettings(
+      android: initializationSettingsAndroid,
+      iOS: initializationSettingsIOS,
+    );
+
+    await flutterLocalNotificationsPlugin.initialize(
+      initializationSettings,
+    );
+
     if (!kIsWeb) {
       // Android 13+ notification permission request at runtime
       if (defaultTargetPlatform == TargetPlatform.android) {
@@ -105,6 +229,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: NotificationService.navigatorKey,
       title: 'Quick Bundles Ghana',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(

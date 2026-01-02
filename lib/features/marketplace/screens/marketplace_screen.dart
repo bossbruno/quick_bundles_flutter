@@ -438,21 +438,30 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                 Expanded(
                   child: TabBar(
                     controller: _tabController,
+                    isScrollable: false,
                     tabs: [
                       const Tab(
-                          icon: Icon(Icons.storefront), text: 'Marketplace'),
-                      // Chats Tab with badge
+                        icon: Icon(Icons.storefront),
+                        text: 'Marketplace',
+                      ),
+                      // Chats Tab with improved badge
                       StreamBuilder<QuerySnapshot>(
                         stream: FirebaseFirestore.instance
                             .collection('chats')
-                            .where('buyerId', isEqualTo: FirebaseAuth.instance
-                            .currentUser?.uid)
+                            .where('buyerId', isEqualTo: FirebaseAuth.instance.currentUser?.uid)
+                            .where('status', isNotEqualTo: 'completed')
                             .snapshots(),
                         builder: (context, chatSnap) {
                           if (!chatSnap.hasData) {
                             return const Tab(
-                              icon: Icon(Icons.chat_bubble_outline),
-                              text: 'Chats',
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.chat_bubble_outline),
+                                  SizedBox(width: 8),
+                                  Text('Chats'),
+                                ],
+                              ),
                             );
                           }
                           final chatDocs = chatSnap.data!.docs;
@@ -461,32 +470,38 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                             builder: (context, unreadSnap) {
                               final unreadCount = unreadSnap.data ?? 0;
                               return Tab(
-                                icon: Stack(
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    const Icon(Icons.chat_bubble_outline),
-                                    if (unreadCount > 0)
-                                      Positioned(
-                                        right: 0,
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(
-                                              horizontal: 6, vertical: 2),
-                                          decoration: BoxDecoration(
-                                            color: Colors.red,
-                                            borderRadius: BorderRadius.circular(
-                                                12),
+                                    const Icon(Icons.chat_bubble_outline, size: 20),
+                                    const SizedBox(width: 4),
+                                    const Text('Chats'),
+                                    if (unreadCount > 0) ...[
+                                      const SizedBox(width: 6),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        constraints: const BoxConstraints(
+                                          minWidth: 20,
+                                          minHeight: 20,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: Colors.red,
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
+                                        child: Text(
+                                          unreadCount > 99 ? '99+' : unreadCount.toString(),
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                            height: 1.2,
                                           ),
-                                          child: Text(
-                                            unreadCount.toString(),
-                                            style: const TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 12,
-                                                fontWeight: FontWeight.bold),
-                                          ),
+                                          textAlign: TextAlign.center,
                                         ),
                                       ),
+                                    ],
                                   ],
                                 ),
-                                text: 'Chats',
                               );
                             },
                           );
@@ -750,12 +765,31 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
         bool isVerified = false;
 
                 if (userSnap.hasData && userSnap.data!.exists) {
-                  final userData = userSnap.data!.data() as Map<String,
-                      dynamic>?;
-                  vendorName = userData?['businessName'] ?? userData?['name'] ??
-                      'Vendor';
-                  isVerified = userData?['verificationStatus'] ??
-                      userData?['isVerified'] ?? false;
+                  try {
+                    final userData = userSnap.data!.data() as Map<String, dynamic>?;
+                    if (userData != null) {
+                      // Try multiple possible field names for vendor name
+                      vendorName = userData['businessName'] ?? 
+                                 userData['business_name'] ??
+                                 userData['displayName'] ??
+                                 userData['display_name'] ??
+                                 userData['name'] ?? 
+                                 'Vendor (${vendorId.substring(0, 4)})'; // Show first 4 chars of ID if no name found
+                      
+                      isVerified = userData['verificationStatus'] ?? 
+                                 userData['isVerified'] ?? 
+                                 userData['verified'] ?? 
+                                 false;
+                      
+                      // Log the data for debugging
+                      debugPrint('Vendor data for $vendorId: ${userData.toString()}');
+                    }
+                  } catch (e) {
+                    debugPrint('Error processing vendor data: $e');
+                    vendorName = 'Vendor (Error)';
+                  }
+                } else {
+                  debugPrint('Vendor document $vendorId does not exist or could not be loaded');
                 }
 
                 return FutureBuilder<DocumentSnapshot>(
@@ -2192,15 +2226,22 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
   }
 
   Future<int> _getTotalUnreadCount(List<QueryDocumentSnapshot> chatDocs) async {
+    // Use aggregated per-user unread counters on chat documents for performance and correctness
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return 0;
     int total = 0;
     for (var chatDoc in chatDocs) {
-      final vendorId = chatDoc['vendorId'];
-      final unreadSnap = await chatDoc.reference
-          .collection('messages')
-          .where('isRead', isEqualTo: false)
-          .where('senderId', isEqualTo: vendorId)
-          .get();
-      total += unreadSnap.size;
+      // Skip completed chats
+      final status = (chatDoc.data() as Map<String, dynamic>)['status'];
+      if (status == 'completed') continue;
+      final data = chatDoc.data() as Map<String, dynamic>;
+      final key = 'unreadCount_$uid';
+      final count = data[key];
+      if (count is int) {
+        total += count;
+      } else if (count is num) {
+        total += count.toInt();
+      }
     }
     return total;
   }

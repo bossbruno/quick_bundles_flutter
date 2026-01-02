@@ -1,9 +1,20 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Check rate limits (simplified version - actual rate limiting should be done in Cloud Functions)
+    function isUnderRateLimit() {
+      return true; // Rate limiting handled by Cloud Functions
+    }
+
     // Helper functions
     function isAuthenticated() {
       return request.auth != null;
+    }
+    
+    // Check if user's email is verified
+    function isEmailVerified() {
+      return isAuthenticated() && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.emailVerified == true;
     }
     
     function isOwner(userId) {
@@ -11,24 +22,132 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      let userDoc = get(/databases/$(database)/documents/users/$(request.auth.uid));
-      return userDoc != null && userDoc.data.role == 'admin';
+      return isAuthenticated() && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    
+    function isVerifiedVendor() {
+      let userDoc = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return isAuthenticated() && 
+             isEmailVerified() &&
+             userDoc.userType == 'vendor' && 
+             userDoc.isVerified == true;
+    }
+    
+    // Helper function to check if user is a participant in a chat
+    function isChatParticipant(chatId) {
+      let chatDoc = get(/databases/$(database)/documents/chats/$(chatId));
+      return chatDoc.data.vendorId == request.auth.uid || 
+             chatDoc.data.buyerId == request.auth.uid;
+    }
+    
+    // Input validation
+    function isValidString(str, minLength, maxLength) {
+      return str is string && 
+             str.size() >= minLength && 
+             str.size() <= maxLength;
+    }
+    
+    function isValidNumber(num, min, max) {
+      return num is number && num >= min && num <= max;
+    }
+    
+    function isValidTimestamp(timeValue) {
+      // Accept either a concrete timestamp or serverTimestamp() (which equals request.time in rules)
+      return (
+        (timeValue is timestamp && timeValue <= request.time && timeValue >= timestamp.date(2023, 1, 1)) ||
+        (timeValue == request.time)
+      );
     }
 
     // Users collection
     match /users/{userId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isOwner(userId);
-      allow update: if isAuthenticated() && isOwner(userId);
-      allow delete: if false; // Prevent user deletion
+      // Allow authenticated users to read basic user docs (needed for notification tokens)
+      allow read: if isAuthenticated() && isUnderRateLimit();
+                  
+      // Allow users to update their email verification status
+      allow update: if isAuthenticated() &&
+                   isOwner(userId) &&
+                   isUnderRateLimit() &&
+                   request.resource.data.diff(resource.data).affectedKeys().hasOnly(['emailVerified']) &&
+                   request.resource.data.emailVerified == true;
+                  
+      // Allow user to create their own profile with minimal required fields
+      allow create: if isAuthenticated() && 
+                   isOwner(userId) && 
+                   isUnderRateLimit() &&
+                   // Required fields with type checking
+                   request.resource.data.keys().hasAll(['email', 'createdAt']) &&
+                   request.resource.data.email is string &&
+                   request.resource.data.createdAt is timestamp;
+      
+      // Allow users to update their own profile with certain restrictions
+      allow update: if isAuthenticated() && 
+                   isUnderRateLimit() &&
+                   // Either the user is updating their own profile or an admin is updating it
+                   (isOwner(userId) || isAdmin()) &&
+                   // Ensure required fields exist in the document (but don't require them in the update)
+                   resource.data.keys().hasAll(['email', 'createdAt']) &&
+                   (
+                     // Allow admins to update any field except email
+                     (isAdmin() && 
+                      !('email' in request.resource.data.diff(resource.data).affectedKeys())) ||
+                     // Allow users to update their own profile with specific fields
+                     (isOwner(userId) && (
+                       // Allow updating only oneSignalPlayerId and lastUpdated
+                       (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['oneSignalPlayerId', 'lastUpdated']) &&
+                        (request.resource.data.oneSignalPlayerId == null || 
+                         request.resource.data.oneSignalPlayerId is string)) ||
+                       // Or allow updating other allowed profile fields
+                       (request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['name', 'phoneNumber', 'lastLogin', 'updatedAt']))
+                     ))
+                   ) &&
+                   // Additional validation for admin updates
+                   (!('role' in request.resource.data.diff(resource.data).affectedKeys()) || isAdmin()) &&
+                   (!('isVerified' in request.resource.data.diff(resource.data).affectedKeys()) || isAdmin());
+                     
+      allow delete: if false; // Prevent user deletion through standard means
     }
 
     // Transactions collection
     match /transactions/{transactionId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated();
-      allow update: if isAuthenticated();
-      allow delete: if false;
+      // Allow reading transactions where the user is either the buyer or vendor
+      allow read: if isAuthenticated() && 
+                   isUnderRateLimit() &&
+                   (resource.data.buyerId == request.auth.uid || 
+                    resource.data.vendorId == request.auth.uid ||
+                    isAdmin());
+                    
+      allow create: if isAuthenticated() && 
+                    isUnderRateLimit() &&
+                    // Validate transaction data
+                    request.resource.data.keys().hasAll([
+                      'amount', 'status', 'type', 'timestamp', 'vendorId', 'buyerId'
+                    ]) &&
+                    // Either the buyer or vendor can create the transaction
+                    (request.resource.data.vendorId == request.auth.uid || 
+                     request.resource.data.buyerId == request.auth.uid ||
+                     isAdmin()) &&
+                    // Validate fields
+                    isValidNumber(request.resource.data.amount, 0, 1000000) &&
+                    // Allow intermediate states used in chat flows
+                    request.resource.data.status in ['pending', 'processing', 'data_sent', 'completed', 'failed', 'cancelled'] &&
+                    isValidTimestamp(request.resource.data.timestamp);
+                    
+      allow update: if isAuthenticated() && 
+                    isUnderRateLimit() &&
+                    // Only admin or involved parties
+                    (isAdmin() || resource.data.buyerId == request.auth.uid || resource.data.vendorId == request.auth.uid) &&
+                    // Only allow status and updatedAt fields to be updated
+                    request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']) &&
+                    // Allow wider set of statuses for chat-driven flow
+                    request.resource.data.status in ['pending', 'processing', 'data_sent', 'completed', 'failed', 'cancelled'];
+                    
+      // Allow vendors to list their transactions
+      allow list: if isAuthenticated() && isUnderRateLimit();
+                    
+      allow delete: if false; // Transactions should not be deleted
     }
 
     // Bundles collection
@@ -39,37 +158,178 @@ service cloud.firestore {
 
     // Listings collection
     match /listings/{listingId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && request.resource.data.vendorId == request.auth.uid;
-      allow update: if isAuthenticated() && resource.data.vendorId == request.auth.uid;
-      allow delete: if isAuthenticated() && resource.data.vendorId == request.auth.uid;
+      // Helper function to check if user is a verified vendor
+      function isVendor() {
+        return isVerifiedVendor() && 
+               isEmailVerified() &&
+               (resource == null || request.auth.uid == resource.data.vendorId);
+      }
+      
+      // Allow reading if authenticated
+      allow read: if isAuthenticated() && isUnderRateLimit();
+      
+      // Allow creation of listings only by verified vendors with verified emails
+      allow create: if isAuthenticated() && 
+                   isUnderRateLimit() && 
+                   isVerifiedVendor() &&
+                   isEmailVerified() &&
+                   request.resource.data.vendorId == request.auth.uid &&
+                   // Validate required fields
+                   request.resource.data.title is string &&
+                   request.resource.data.title != '' &&
+                   request.resource.data.price is number &&
+                   request.resource.data.price >= 0 &&
+                   request.resource.data.status is string &&
+                   request.resource.data.status in ['active', 'inactive', 'sold'] &&
+                   request.resource.data.createdAt is timestamp &&
+                   // Validate field types and constraints
+                   isValidString(request.resource.data.title, 1, 100) &&
+                   (request.resource.data.description == null || isValidString(request.resource.data.description, 0, 2000)) &&
+                   (request.resource.data.network == null || isValidString(request.resource.data.network, 2, 50)) &&
+                   (request.resource.data.bundleSize == null || isValidString(request.resource.data.bundleSize, 1, 20)) &&
+                   (request.resource.data.validity == null || isValidString(request.resource.data.validity, 1, 50)) &&
+                   (request.resource.data.discountPercentage == null || 
+                    (request.resource.data.discountPercentage is number && 
+                     request.resource.data.discountPercentage >= 0 && 
+                     request.resource.data.discountPercentage <= 100));
+      
+      // Allow updates with proper validation
+      allow update: if isAuthenticated() && 
+                   isUnderRateLimit() &&
+                   // Only the original vendor (if verified) or admin can update
+                   ((resource.data.vendorId == request.auth.uid && isVerifiedVendor()) || isAdmin()) &&
+                   // Ensure the vendorId cannot be changed
+                   (request.resource.data.vendorId == null || 
+                    request.resource.data.vendorId == resource.data.vendorId) &&
+                   // Only allow certain fields to be updated
+                   (request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                     'title', 'description', 'price', 'status', 'updatedAt', 
+                     'network', 'bundleSize', 'validity', 'discountPercentage'
+                   ]) || isAdmin()) &&
+                   // Only admin can change status directly
+                   (request.resource.data.status == resource.data.status || isAdmin()) &&
+                   // Validate updated fields
+                   (request.resource.data.title == null || 
+                    (request.resource.data.title is string && 
+                     isValidString(request.resource.data.title, 1, 100))) &&
+                   (request.resource.data.description == null || 
+                    (request.resource.data.description is string && 
+                     isValidString(request.resource.data.description, 0, 2000))) &&
+                   (request.resource.data.network == null || 
+                    (request.resource.data.network is string && 
+                     isValidString(request.resource.data.network, 2, 50))) &&
+                   (request.resource.data.bundleSize == null || 
+                    (request.resource.data.bundleSize is string && 
+                     isValidString(request.resource.data.bundleSize, 1, 20))) &&
+                   (request.resource.data.validity == null || 
+                    (request.resource.data.validity is string && 
+                     isValidString(request.resource.data.validity, 1, 50))) &&
+                   (request.resource.data.price == null || 
+                    (request.resource.data.price is number && 
+                     request.resource.data.price >= 0)) &&
+                   (request.resource.data.discountPercentage == null || 
+                    (request.resource.data.discountPercentage is number && 
+                     request.resource.data.discountPercentage >= 0 && 
+                     request.resource.data.discountPercentage <= 100));
+                   
+      allow delete: if isAuthenticated() && 
+                   isUnderRateLimit() &&
+                   (resource.data.vendorId == request.auth.uid || isAdmin());
     }
 
     // Chats collection
     match /chats/{chatId} {
-      allow read: if isAuthenticated() && (
-        resource.data.vendorId == request.auth.uid || resource.data.buyerId == request.auth.uid
-      );
-      allow create: if isAuthenticated();
-      allow update: if isAuthenticated() && (
-        resource.data.vendorId == request.auth.uid || resource.data.buyerId == request.auth.uid
-      );
-      // Allow either party (vendor or buyer) to delete the chat document
-      allow delete: if isAuthenticated() && (
-        resource.data.vendorId == request.auth.uid || resource.data.buyerId == request.auth.uid
-      );
+      // Allow reading chat metadata if user is a participant
+      allow read: if isAuthenticated() && 
+                  isUnderRateLimit() &&
+                  (resource.data.vendorId == request.auth.uid || 
+                   resource.data.buyerId == request.auth.uid);
+                   
+      allow create: if isAuthenticated() && 
+                   isUnderRateLimit() &&
+                   // Validate chat creation
+                   request.resource.data.keys().hasAll([
+                     'vendorId', 'buyerId', 'bundleId', 'createdAt'
+                   ]) &&
+                   // Buyer and vendor must be different
+                   (request.resource.data.buyerId != request.resource.data.vendorId) &&
+                   // Caller must be one of the participants
+                   (request.resource.data.vendorId == request.auth.uid ||
+                    request.resource.data.buyerId == request.auth.uid) &&
+                   isValidTimestamp(request.resource.data.createdAt);
+                   
+      allow update: if isAuthenticated() && 
+                   isUnderRateLimit() &&
+                   // Only vendor or buyer in this chat may update
+                   // Handle cases where vendorId might be null or missing
+                   ((resource.data.vendorId is string && 
+                     resource.data.vendorId == request.auth.uid) ||
+                    (resource.data.buyerId is string &&
+                     resource.data.buyerId == request.auth.uid)) &&
+                   // Only allow specific fields to be updated (static + dynamic per-participant fields)
+                   request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                     'lastMessage',
+                     'lastMessageTime',
+                     'lastMessageSenderId',
+                     'updatedAt',
+                     'status',
+                     'activeOrderId',
+                     'completedBy',
+                     'buyerName',
+                     // Per-participant unread counters
+                     ('unreadCount_' + resource.data.vendorId),
+                     ('unreadCount_' + resource.data.buyerId),
+                     // Current user last-read stamp
+                     ('lastMessageRead_' + request.auth.uid)
+                   ]) &&
+                   // Chat status can only be: pending, processing, data_sent, completed
+                   (request.resource.data.status == null || 
+                    request.resource.data.status == resource.data.status ||
+                    request.resource.data.status in ['pending', 'processing', 'data_sent', 'completed']);
+                   
+      // Prevent chat deletion to maintain message history
+      allow delete: if false;
 
       // Messages subcollection under chats
       match /messages/{messageId} {
-        allow read, create, update: if isAuthenticated() && (
-          get(/databases/$(database)/documents/chats/$(chatId)).data.vendorId == request.auth.uid ||
-          get(/databases/$(database)/documents/chats/$(chatId)).data.buyerId == request.auth.uid
-        );
-        // Allow either party to delete a message in their chat
-        allow delete: if isAuthenticated() && (
-          get(/databases/$(database)/documents/chats/$(chatId)).data.vendorId == request.auth.uid ||
-          get(/databases/$(database)/documents/chats/$(chatId)).data.buyerId == request.auth.uid
-        );
+        allow read: if isAuthenticated() && 
+                    isUnderRateLimit() &&
+                    isChatParticipant(chatId);
+                     
+        allow create: if isAuthenticated() && 
+                     isUnderRateLimit() &&
+                     isChatParticipant(chatId) &&
+                     // Validate message data - allow text or imageUrl
+                     request.resource.data.keys().hasAll(['senderId', 'timestamp']) &&
+                     // Allow sender to be the authenticated user or 'system' for system messages
+                     (request.resource.data.senderId == request.auth.uid ||
+                      request.resource.data.senderId == 'system') &&
+                     // Allow either text or imageUrl (or both) - system messages can have empty text
+                     (
+                       request.resource.data.senderId == 'system' ||
+                       (request.resource.data.text is string && 
+                        (request.resource.data.imageUrl != null || 
+                         isValidString(request.resource.data.text, 1, 2000))) ||
+                       (request.resource.data.imageUrl is string && 
+                        request.resource.data.imageUrl != '')
+                     ) &&
+                     isValidTimestamp(request.resource.data.timestamp);
+                     
+        // Allow updating isRead field to mark messages as read
+        allow update: if isAuthenticated() && 
+                     isUnderRateLimit() &&
+                     isChatParticipant(chatId) &&
+                     // Only allow updating isRead field
+                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead']);
+        
+        // Soft delete only (mark as deleted)
+        allow delete: if isAuthenticated() && 
+                     isUnderRateLimit() &&
+                     isChatParticipant(chatId) &&
+                     request.auth.uid == resource.data.senderId &&
+                     // Only allow setting deleted flag
+                     request.resource.data.diff(resource.data).affectedKeys()
+                       .hasOnly(['deleted', 'deletedAt']);
       }
     }
 

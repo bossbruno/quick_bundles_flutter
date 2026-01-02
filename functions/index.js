@@ -5,13 +5,261 @@ const nodemailer = require('nodemailer');
 admin.initializeApp();
 
 // Email configuration - UPDATE THE PASSWORD BELOW
-const transporter = nodemailer.createTransporter({
+const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
     user: 'kwakye105@gmail.com',
     pass: 'juyq pjnm jtvv ztyc', // Replace with your 16-character app password
   },
 });
+
+const DELETE_AFTER_DAYS = 7;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+exports.deleteUnverifiedUsers = functions.pubsub
+  .schedule('every 24 hours')
+  .timeZone('Africa/Accra')
+  .onRun(async () => {
+    const now = Date.now();
+    const cutoffTime = now - (DELETE_AFTER_DAYS * MS_PER_DAY);
+
+    try {
+      const listUsersResult = await admin.auth().listUsers(1000);
+      const users = listUsersResult.users;
+
+      const deletePromises = [];
+
+      for (const user of users) {
+        if (user.emailVerified) continue;
+
+        const userDoc = await admin.firestore().collection('users').doc(user.uid).get();
+
+        if (!userDoc.exists || (userDoc.data()?.emailVerified === true)) continue;
+
+        const userCreationTime = user.metadata.creationTime ? new Date(user.metadata.creationTime).getTime() : now;
+
+        if (userCreationTime < cutoffTime) {
+          deletePromises.push(
+            admin
+              .auth()
+              .deleteUser(user.uid)
+              .then(() => admin.firestore().collection('users').doc(user.uid).delete())
+              .catch((error) => console.error(`Error deleting user ${user.uid}:`, error)),
+          );
+        }
+      }
+
+      await Promise.all(deletePromises);
+      return null;
+    } catch (error) {
+      console.error('Error in deleteUnverifiedUsers:', error);
+      return null;
+    }
+  });
+
+exports.sendVerificationReminder = functions.pubsub
+  .schedule('every 24 hours')
+  .timeZone('Africa/Accra')
+  .onRun(async () => {
+    const now = Date.now();
+    const oneDayAgo = now - MS_PER_DAY;
+
+    try {
+      const listUsersResult = await admin.auth().listUsers(1000);
+      const users = listUsersResult.users;
+
+      for (const user of users) {
+        if (user.emailVerified) continue;
+
+        const userDoc = await admin.firestore().collection('users').doc(user.uid).get();
+
+        if (
+          !userDoc.exists ||
+          userDoc.data()?.emailVerified === true ||
+          userDoc.data()?.verificationReminderSent === true
+        ) {
+          continue;
+        }
+
+        const userCreationTime = user.metadata.creationTime ? new Date(user.metadata.creationTime).getTime() : now;
+
+        if (userCreationTime < oneDayAgo) {
+          try {
+            await admin.auth().generateEmailVerificationLink(user.email);
+
+            await admin.firestore().collection('users').doc(user.uid).update({
+              verificationReminderSent: true,
+              lastVerificationReminder: admin.firestore.FieldValue.serverTimestamp(),
+            });
+          } catch (error) {
+            console.error(`Error sending verification reminder to ${user.email}:`, error);
+          }
+        }
+      }
+
+      return null;
+    } catch (error) {
+      console.error('Error in sendVerificationReminder:', error);
+      return null;
+    }
+  });
+
+async function _getUserFcmToken(userId) {
+  const doc = await admin.firestore().collection('users').doc(userId).get();
+  const data = doc.data();
+  const token = data?.fcmToken;
+  if (typeof token === 'string' && token.trim().length > 0) return token.trim();
+  return null;
+}
+
+async function _sendToUser(userId, message) {
+  const token = await _getUserFcmToken(userId);
+  if (!token) return null;
+  try {
+    return await admin.messaging().send({
+      token,
+      ...message,
+    });
+  } catch (error) {
+    console.error('Error sending FCM:', error);
+    if (error?.code === 'messaging/registration-token-not-registered') {
+      try {
+        await admin.firestore().collection('users').doc(userId).update({
+          fcmToken: admin.firestore.FieldValue.delete(),
+        });
+      } catch (e) {
+        console.error('Failed to clear invalid FCM token:', e);
+      }
+    }
+    return null;
+  }
+}
+
+exports.notifyOnNewChatMessage = functions.firestore
+  .document('chats/{chatId}/messages/{messageId}')
+  .onCreate(async (snap, context) => {
+    const msg = snap.data();
+    const senderId = msg?.senderId;
+    const isSystem = msg?.isSystem === true;
+
+    if (!senderId || typeof senderId !== 'string') return null;
+    if (isSystem) return null;
+
+    const chatId = context.params.chatId;
+    const chatDoc = await admin.firestore().collection('chats').doc(chatId).get();
+    if (!chatDoc.exists) return null;
+
+    const chat = chatDoc.data();
+    const buyerId = chat?.buyerId;
+    const vendorId = chat?.vendorId;
+    const bundleId = chat?.bundleId || '';
+
+    if (!buyerId || !vendorId) return null;
+
+    const recipientId = senderId === buyerId ? vendorId : buyerId;
+
+    let senderName = 'New message';
+    if (senderId === buyerId) {
+      senderName = chat?.buyerName || 'Buyer';
+    } else {
+      const senderDoc = await admin.firestore().collection('users').doc(senderId).get();
+      const senderData = senderDoc.data();
+      senderName = senderData?.businessName || senderData?.name || 'Vendor';
+    }
+
+    const text = (msg?.text || '').toString().trim();
+    const imageUrl = (msg?.imageUrl || '').toString().trim();
+    const body = imageUrl && !text ? '📷 Image' : (text ? text : 'New message');
+
+    const payload = {
+      notification: {
+        title: `New message from ${senderName}`,
+        body: body.length > 160 ? `${body.substring(0, 160)}...` : body,
+      },
+      data: {
+        type: 'chat',
+        chatId,
+        bundleId: bundleId.toString(),
+        senderId,
+      },
+      android: {
+        notification: {
+          channelId: 'chat_notifications',
+          priority: 'high',
+          defaultSound: true,
+          defaultVibrateTimings: true,
+        },
+      },
+      apns: {
+        payload: {
+          aps: {
+            sound: 'default',
+            badge: 1,
+          },
+        },
+      },
+    };
+
+    return await _sendToUser(recipientId.toString(), payload);
+  });
+
+exports.notifyOnNewOrderChat = functions.firestore
+  .document('chats/{chatId}')
+  .onCreate(async (snap, context) => {
+    const chat = snap.data();
+    const vendorId = chat?.vendorId;
+    const buyerId = chat?.buyerId;
+    const buyerName = chat?.buyerName || 'Buyer';
+    const bundleId = chat?.bundleId;
+    const recipientNumber = (chat?.recipientNumber || '').toString();
+
+    if (!vendorId || !buyerId) return null;
+
+    let bundleName = 'Bundle';
+    if (bundleId) {
+      try {
+        const bundleDoc = await admin.firestore().collection('listings').doc(bundleId.toString()).get();
+        const bundleData = bundleDoc.data();
+        bundleName = bundleData?.description || bundleData?.title || bundleData?.name || bundleName;
+      } catch (_) {
+        bundleName = bundleName;
+      }
+    }
+
+    const body = recipientNumber ? `${bundleName} for ${recipientNumber}` : `${bundleName}`;
+
+    const payload = {
+      notification: {
+        title: `New order from ${buyerName}`,
+        body: body.length > 160 ? `${body.substring(0, 160)}...` : body,
+      },
+      data: {
+        type: 'order_update',
+        orderStatus: (chat?.status || 'pending').toString(),
+        chatId: context.params.chatId,
+        bundleId: (bundleId || '').toString(),
+        buyerId: buyerId.toString(),
+      },
+      android: {
+        notification: {
+          channelId: 'order_notifications',
+          priority: 'high',
+          defaultSound: true,
+          defaultVibrateTimings: true,
+        },
+      },
+      apns: {
+        payload: {
+          aps: {
+            sound: 'default',
+            badge: 1,
+          },
+        },
+      },
+    };
+
+    return await _sendToUser(vendorId.toString(), payload);
+  });
 
 // Function to send email notifications for new reports
 exports.sendReportNotification = functions.firestore
