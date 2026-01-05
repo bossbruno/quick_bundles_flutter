@@ -4,14 +4,10 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:googleapis/fcm/v1.dart' as fcm;
-import 'package:http/http.dart' as http;
-import 'package:googleapis_auth/googleapis_auth.dart' as auth;
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:googleapis_auth/auth_io.dart';
@@ -22,13 +18,10 @@ class FCMV1Service {
   factory FCMV1Service() => _instance;
 
   late final FirebaseMessaging _fcm;
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final _storage = const FlutterSecureStorage();
   static const String _serviceAccountKey = 'fcm_service_account';
 
   String? _projectId;
-  String? _clientEmail;
-  String? _privateKey;
   bool _initialized = false;
 
   FCMV1Service._internal() {
@@ -49,8 +42,6 @@ class FCMV1Service {
       // Parse project ID
       final json = jsonDecode(jsonString);
       _projectId = json['project_id'];
-        _clientEmail = json['client_email'];
-        _privateKey = json['private_key'];
       } catch (e) {
         debugPrint('Warning: Could not load service account: $e');
       }
@@ -304,13 +295,6 @@ class FCMV1Service {
       debugPrint('Error requesting notification permissions: $e');
       rethrow;
     }
-  }
-
-  // Handle incoming messages
-  void _handleMessage(RemoteMessage message) {
-    debugPrint('Message received: ${message.messageId}');
-    debugPrint('Data: ${message.data}');
-    debugPrint('Notification: ${message.notification?.title}');
   }
 
   // Refresh FCM token

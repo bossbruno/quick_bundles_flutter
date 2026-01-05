@@ -5,13 +5,15 @@ const nodemailer = require('nodemailer');
 admin.initializeApp();
 
 // Email configuration - UPDATE THE PASSWORD BELOW
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: 'kwakye105@gmail.com',
-    pass: 'juyq pjnm jtvv ztyc', // Replace with your 16-character app password
-  },
-});
+function _getTransporter() {
+  return nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: 'kwakye105@gmail.com',
+      pass: process.env.GMAIL_APP_PASSWORD,
+    },
+  });
+}
 
 const DELETE_AFTER_DAYS = 7;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -323,7 +325,7 @@ exports.sendReportNotification = functions.firestore
         html: emailContent,
       };
       
-      await transporter.sendMail(mailOptions);
+      await _getTransporter().sendMail(mailOptions);
       
       console.log('Report notification email sent successfully');
       
@@ -383,7 +385,7 @@ exports.sendReportStatusUpdate = functions.firestore
         html: emailContent,
       };
       
-      await transporter.sendMail(mailOptions);
+      await _getTransporter().sendMail(mailOptions);
       
       console.log('Report status update email sent successfully');
       

@@ -81,7 +81,7 @@ await NotificationService().sendOrderNotification(
 
 ### OneSignal Credentials (Already Configured)
 - **App ID**: `bfd12a40-5ba4-4141-a98b-26aeb15da005`
-- **REST API Key**: `os_v2_app_x7isuqc3uraudkmle2xlcxnaawhjdb756qbu6kmdyjy6m5hjsbdbmu5gsqmzuthy7xfgu7koxfz6r2tn4k7mddwylbl5ovswldyt33a`
+- **REST API Key**: *(do not store in repo; keep in server-side secret storage)*
 
 ### Files Modified
 - `lib/config/onesignal_config.dart` - Credentials configuration

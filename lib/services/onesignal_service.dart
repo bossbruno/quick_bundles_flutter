@@ -28,6 +28,8 @@ class OneSignalService {
   static bool _isUserLoggedIn = false;
   static String? _currentUserId;
 
+  static bool get _canSendFromClient => restApiKey.trim().isNotEmpty;
+
   static Future<void> initialize() async {
     try {
       if (_isInitialized) {
@@ -214,6 +216,10 @@ class OneSignalService {
     int priority = OneSignalConfig.highPriority,
   }) async {
     try {
+      if (!_canSendFromClient) {
+        _logE('OneSignal REST API key is not configured. Skipping client-side sendPushNotification. Use a backend (e.g. Firebase Functions) to send pushes.');
+        return false;
+      }
       _logD('Sending push notification to user: $userId');
       _logD('Title: $title');
       _logD('Message: $message');
@@ -291,6 +297,10 @@ class OneSignalService {
     int priority = OneSignalConfig.defaultPriority,
   }) async {
     try {
+      if (!_canSendFromClient) {
+        _logE('OneSignal REST API key is not configured. Skipping client-side sendBulkPushNotification. Use a backend (e.g. Firebase Functions) to send pushes.');
+        return {'success': false, 'message': 'OneSignal REST API key is not configured'};
+      }
       if (userIds.isEmpty) {
         _logD('No user IDs provided for bulk notification');
         return {'success': false, 'message': 'No user IDs provided'};
@@ -526,6 +536,10 @@ class OneSignalService {
     String? chatId,
   }) async {
     try {
+      if (!_canSendFromClient) {
+        _logE('OneSignal REST API key is not configured. Skipping client-side sendChatNotification. Use a backend (e.g. Firebase Functions) to send pushes.');
+        return;
+      }
       if (playerId.isEmpty) {
         _logD('Player ID is empty');
         return;
@@ -560,6 +574,10 @@ class OneSignalService {
     Map<String, dynamic>? additionalData,
   }) async {
     try {
+      if (!_canSendFromClient) {
+        _logE('OneSignal REST API key is not configured. Skipping client-side sendNotification. Use a backend (e.g. Firebase Functions) to send pushes.');
+        return;
+      }
       final url = Uri.parse('https://onesignal.com/api/v1/notifications');
       final response = await http.post(
         url,
@@ -594,6 +612,10 @@ class OneSignalService {
     Map<String, dynamic>? additionalData,
   }) async {
     try {
+      if (!_canSendFromClient) {
+        _logE('OneSignal REST API key is not configured. Skipping client-side sendNotificationToMultiple. Use a backend (e.g. Firebase Functions) to send pushes.');
+        return;
+      }
       final url = Uri.parse('https://onesignal.com/api/v1/notifications');
       final response = await http.post(
         url,

@@ -526,9 +526,11 @@ class _VendorChatDetailScreenState extends State<VendorChatDetailScreen> {
                 }
                 final messages = snapshot.data!.docs;
                 WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+                final maxBubbleWidth = MediaQuery.sizeOf(context).width * 0.75;
                 // Note: Push notifications are now handled by FCM service
                 // Local notifications removed to prevent duplicates
                 return ListView.builder(
+                  key: PageStorageKey<String>('vendor_chat_messages_${widget.chatId}'),
                   controller: _scrollController,
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   itemCount: messages.length,
@@ -537,61 +539,13 @@ class _VendorChatDetailScreenState extends State<VendorChatDetailScreen> {
                     final isMe = msg['senderId'] == user!.uid;
                     final timestamp = msg['timestamp'] != null ? (msg['timestamp'] as Timestamp).toDate() : null;
                     final timeString = timestamp != null ? TimeOfDay.fromDateTime(timestamp).format(context) : '';
-                    return Align(
-                      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-                      child: Container(
-                        margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                        constraints: BoxConstraints(
-                          maxWidth: MediaQuery.of(context).size.width * 0.75,
-                        ),
-                        decoration: BoxDecoration(
-                          color: isMe ? Colors.green[100] : Colors.grey[200],
-                          borderRadius: BorderRadius.only(
-                            topLeft: const Radius.circular(16),
-                            topRight: const Radius.circular(16),
-                            bottomLeft: Radius.circular(isMe ? 16 : 4),
-                            bottomRight: Radius.circular(isMe ? 4 : 16),
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.04),
-                              blurRadius: 4,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (msg['imageUrl'] != null)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 6),
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(12),
-                                  child: Image.network(
-                                    msg['imageUrl'],
-                                    width: 180,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (c, e, s) => const Icon(Icons.broken_image),
-                                  ),
-                                ),
-                              ),
-                            if ((msg['text'] ?? '').isNotEmpty)
-                              Text(
-                                msg['text'],
-                                style: const TextStyle(fontSize: 15),
-                                softWrap: true,
-                              ),
-                            const SizedBox(height: 4),
-                            if (timeString.isNotEmpty)
-                              Text(
-                                timeString,
-                                style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-                              ),
-                          ],
-                        ),
-                      ),
+                    return _VendorChatMessageBubble(
+                      key: ValueKey(messages[index].id),
+                      isMe: isMe,
+                      text: (msg['text'] ?? '').toString(),
+                      imageUrl: msg['imageUrl']?.toString(),
+                      timeString: timeString,
+                      maxBubbleWidth: maxBubbleWidth,
                     );
                   },
                 );
@@ -663,4 +617,84 @@ class _VendorChatDetailScreenState extends State<VendorChatDetailScreen> {
       ),
     );
   }
-} 
+}
+
+class _VendorChatMessageBubble extends StatelessWidget {
+  const _VendorChatMessageBubble({
+    super.key,
+    required this.isMe,
+    required this.text,
+    required this.imageUrl,
+    required this.timeString,
+    required this.maxBubbleWidth,
+  });
+
+  static const EdgeInsets _margin = EdgeInsets.symmetric(vertical: 4, horizontal: 2);
+  static const EdgeInsets _padding = EdgeInsets.symmetric(horizontal: 14, vertical: 10);
+  static const EdgeInsets _imagePadding = EdgeInsets.only(bottom: 6);
+  static const double _imageWidth = 180;
+
+  final bool isMe;
+  final String text;
+  final String? imageUrl;
+  final String timeString;
+  final double maxBubbleWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        margin: _margin,
+        padding: _padding,
+        constraints: BoxConstraints(maxWidth: maxBubbleWidth),
+        decoration: BoxDecoration(
+          color: isMe ? Colors.green[100] : Colors.grey[200],
+          borderRadius: BorderRadius.only(
+            topLeft: const Radius.circular(16),
+            topRight: const Radius.circular(16),
+            bottomLeft: Radius.circular(isMe ? 16 : 4),
+            bottomRight: Radius.circular(isMe ? 4 : 16),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (imageUrl != null)
+              Padding(
+                padding: _imagePadding,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.network(
+                    imageUrl!,
+                    width: _imageWidth,
+                    fit: BoxFit.cover,
+                    errorBuilder: (c, e, s) => const Icon(Icons.broken_image),
+                  ),
+                ),
+              ),
+            if (text.isNotEmpty)
+              Text(
+                text,
+                style: const TextStyle(fontSize: 15),
+                softWrap: true,
+              ),
+            const SizedBox(height: 4),
+            if (timeString.isNotEmpty)
+              Text(
+                timeString,
+                style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}

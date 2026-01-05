@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'signup_screen.dart';
 import '../../marketplace/screens/marketplace_screen.dart';
@@ -187,8 +188,10 @@ class _LoginScreenState extends State<LoginScreen> {
               email: _emailController.text.trim(),
               password: _passwordController.text.trim(),
             );
+            if (kDebugMode) print('💾 LoginScreen: Remember me checked - credentials saved');
           } else {
             await authService.clearRememberedCredentials();
+            if (kDebugMode) print('🗑️ LoginScreen: Remember me unchecked - credentials cleared');
           }
 
           // Update FCM token

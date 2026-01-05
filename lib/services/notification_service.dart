@@ -105,6 +105,14 @@ class NotificationService {
     // Helper to attach a messages listener for a chat
     Future<void> _attachForChat(String chatId, String otherPartyName) async {
       if (_chatMessageSubs.containsKey(chatId)) return;
+      
+      // Verify the chat is not completed before attaching
+      final chatDoc = await _firestore.collection('chats').doc(chatId).get();
+      if (!chatDoc.exists) return;
+      final chatData = chatDoc.data() as Map<String, dynamic>?;
+      final status = (chatData?['status'] ?? 'pending').toString();
+      if (status == 'completed') return; // Skip completed chats
+      
       final sub = _firestore
           .collection('chats')
           .doc(chatId)
@@ -152,6 +160,7 @@ class NotificationService {
     _buyerChatsSub = _firestore
         .collection('chats')
         .where('buyerId', isEqualTo: userId)
+        .where('status', isNotEqualTo: 'completed')  // Exclude completed chats
         .snapshots()
         .listen((snap) async {
       if (!_buyerChatsLoaded) {
@@ -186,6 +195,9 @@ class NotificationService {
 
       for (final doc in snap.docs) {
         final data = doc.data() as Map<String, dynamic>;
+        final status = (data['status'] ?? 'pending').toString();
+        if (status == 'completed') continue; // Skip completed chats
+        
         final vendorId = data['vendorId']?.toString();
         String otherName = 'Vendor';
         try {

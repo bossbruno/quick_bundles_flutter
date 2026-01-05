@@ -32,16 +32,25 @@ class AuthService {
   }) async {
     await _secureStorage.write(key: _rememberMeEmailKey, value: email);
     await _secureStorage.write(key: _rememberMePasswordKey, value: password);
+    if (kDebugMode) {
+      print('✅ AuthService: Saved credentials for email: $email');
+    }
   }
 
   Future<void> clearRememberedCredentials() async {
     await _secureStorage.delete(key: _rememberMeEmailKey);
     await _secureStorage.delete(key: _rememberMePasswordKey);
+    if (kDebugMode) {
+      print('🗑️ AuthService: Cleared remembered credentials');
+    }
   }
 
   Future<({String email, String password})?> getRememberedCredentials() async {
     final email = await _secureStorage.read(key: _rememberMeEmailKey);
     final password = await _secureStorage.read(key: _rememberMePasswordKey);
+    if (kDebugMode) {
+      print('🔍 AuthService: Read credentials - email: ${email ?? 'null'}, password: ${password != null ? 'present' : 'null'}');
+    }
     if (email == null || email.isEmpty || password == null || password.isEmpty) {
       return null;
     }

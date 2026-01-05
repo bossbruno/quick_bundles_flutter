@@ -25,6 +25,9 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
   // State variables
   bool _navigatingToChat = false;
 
+  static const SizedBox _w6 = SizedBox(width: 6);
+  static const TextStyle _unknownVendorTextStyle = TextStyle(fontSize: 13, fontWeight: FontWeight.w500);
+
   // Initialize listing repository
   final ListingRepository _listingRepository = ListingRepository();
   late TabController _tabController;
@@ -309,10 +312,9 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
             if (!snapshot.hasData || !snapshot.data!.exists) {
               return Row(
                 children: [
-                  Icon(Icons.storefront_rounded, color: Colors.blue, size: 18),
-                  SizedBox(width: 6),
-                  Text('Unknown Vendor', style: TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.w500)),
+                  const Icon(Icons.storefront_rounded, color: Colors.blue, size: 18),
+                  _w6,
+                  const Text('Unknown Vendor', style: _unknownVendorTextStyle),
                 ],
               );
             }
@@ -320,10 +322,9 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
             if (data == null) {
               return Row(
                 children: [
-                  Icon(Icons.storefront_rounded, color: Colors.blue, size: 18),
-                  SizedBox(width: 6),
-                  Text('Unknown Vendor', style: TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.w500)),
+                  const Icon(Icons.storefront_rounded, color: Colors.blue, size: 18),
+                  _w6,
+                  const Text('Unknown Vendor', style: _unknownVendorTextStyle),
                 ],
               );
             }
@@ -598,6 +599,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
         }
         final transactions = snapshot.data!.docs;
         return ListView.builder(
+          key: const PageStorageKey<String>('buyer_transactions_list'),
           itemCount: transactions.length,
           itemBuilder: (context, index) {
             final tx = transactions[index].data() as Map<String, dynamic>;
@@ -741,6 +743,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
 
         final chats = snapshot.data!.docs;
         return ListView.builder(
+          key: const PageStorageKey<String>('buyer_chats_list'),
           padding: const EdgeInsets.all(16.0),
           itemCount: chats.length,
           itemBuilder: (context, index) {
@@ -757,7 +760,9 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
             final selected = _selectedChatIds.contains(chatId);
             final status = chatData['status'] ?? 'pending';
 
-    return FutureBuilder<DocumentSnapshot>(
+    return KeyedSubtree(
+      key: ValueKey(chatId),
+      child: FutureBuilder<DocumentSnapshot>(
               future: FirebaseFirestore.instance.collection('users').doc(
                   vendorId).get(),
               builder: (context, userSnap) {
@@ -800,6 +805,9 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                     double dataAmount = 0.0;
                     Color networkColor = Colors.grey;
                     String networkLabel = '';
+
+                    final Color lastMessagePreviewColor = Colors.grey[600] ?? Colors.grey;
+                    final Color timeTextColor = Colors.grey[500] ?? Colors.grey;
 
                     if (bundleSnap.hasData && bundleSnap.data!.exists) {
                       final bundleData = bundleSnap.data!.data() as Map<
@@ -958,7 +966,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
-                                        color: Colors.grey[600],
+                                        color: lastMessagePreviewColor,
                                         fontSize: 14,
                                       ),
                                     ),
@@ -1008,7 +1016,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                                       Text(
                                         _formatTime(lastMessageTime),
                                         style: TextStyle(
-                                          color: Colors.grey[500],
+                                          color: timeTextColor,
                                           fontSize: 12,
                                         ),
                                       ),
@@ -1043,7 +1051,8 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                   },
                 );
               },
-            );
+            ),
+    );
           },
         );
       },
@@ -1667,7 +1676,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                                         // No chatId for new purchase
                                         vendorId: listing.vendorId,
                                         bundleId: listing.id,
-                                        businessName: listing.vendorId ?? '',
+                                        businessName: listing.vendorId,
                                         recipientNumber: result,
                                       ),
                                 ),
@@ -1911,7 +1920,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                 ],
               ),
               if (listing.estimatedDeliveryTime > 0 ||
-                  (listing.availableStock ?? 0) > 0)
+                  listing.availableStock > 0)
                                 Padding(
                                   padding: const EdgeInsets.only(top: 6),
                                   child: Row(
@@ -1922,7 +1931,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                                         Text('${listing.estimatedDeliveryTime} min delivery'),
                                         const SizedBox(width: 12),
                                       ],
-                      if ((listing.availableStock ?? 0) > 0) ...[
+                      if (listing.availableStock > 0) ...[
                                         const Icon(Icons.inventory_2, size: 16),
                                         const SizedBox(width: 2),
                                         Text('Stock: ${listing.availableStock}'),
@@ -2010,7 +2019,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                                   chatId: '',
                                             vendorId: listing.vendorId,
                                   bundleId: listing.id,
-                                  businessName: listing.vendorId ?? '',
+                                  businessName: listing.vendorId,
                                             recipientNumber: result,
                                           ),
                                         ),

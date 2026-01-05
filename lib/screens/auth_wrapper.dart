@@ -24,20 +24,29 @@ class _AuthWrapperState extends State<AuthWrapper> {
   ({String email, String password})? _remembered;
 
   Future<bool> _tryAutoLoginIfPossible() async {
-    if (_autoLoginAttempted) return false;
+    if (_autoLoginAttempted) {
+      if (kDebugMode) print('🚫 AuthWrapper: Auto-login already attempted, skipping');
+      return false;
+    }
     _autoLoginAttempted = true;
 
     final authService = AuthService();
     final creds = await authService.getRememberedCredentials();
     _remembered = creds;
-    if (creds == null) return false;
+    if (creds == null) {
+      if (kDebugMode) print('❌ AuthWrapper: No remembered credentials found');
+      return false;
+    }
 
+    if (kDebugMode) print('🔐 AuthWrapper: Attempting auto-login for: ${creds.email}');
     try {
       await authService.signInWithEmailAndPassword(
         email: creds.email,
         password: creds.password,
       );
-      return authService.currentUser != null;
+      final success = authService.currentUser != null;
+      if (kDebugMode) print('🎉 AuthWrapper: Auto-login ${success ? 'succeeded' : 'failed'}');
+      return success;
     } catch (e) {
       if (kDebugMode) {
         print('⚠️ AuthWrapper: Auto-login failed: $e');
@@ -114,11 +123,11 @@ class _AuthWrapperState extends State<AuthWrapper> {
           
           if (kDebugMode) {
             print('✅ AuthWrapper: User session restored successfully');
-            print('   User ID: ${currentUser?.uid}');
-            print('   Email: ${currentUser?.email}');
-            print('   Email Verified: ${currentUser?.emailVerified}');
-            print('   Last Sign In: ${currentUser?.metadata.lastSignInTime}');
-            print('   Creation Time: ${currentUser?.metadata.creationTime}');
+            print('   User ID: ${currentUser.uid}');
+            print('   Email: ${currentUser.email}');
+            print('   Email Verified: ${currentUser.emailVerified}');
+            print('   Last Sign In: ${currentUser.metadata.lastSignInTime}');
+            print('   Creation Time: ${currentUser.metadata.creationTime}');
           }
         } catch (e) {
           // If reload fails, the token might be expired or invalid
@@ -142,6 +151,13 @@ class _AuthWrapperState extends State<AuthWrapper> {
 
         // Try auto-login using securely stored credentials (Remember me)
         await _tryAutoLoginIfPossible();
+        
+        // Refresh remembered credentials in case they changed during this session
+        final refreshed = await AuthService().getRememberedCredentials();
+        _remembered = refreshed;
+        if (kDebugMode) {
+          print('🔄 AuthWrapper: Refreshed credentials - email: ${refreshed?.email ?? 'null'}');
+        }
       }
       
       setState(() => _initialized = true);
