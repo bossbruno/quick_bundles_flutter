@@ -287,8 +287,10 @@ service cloud.firestore {
                     request.resource.data.status == resource.data.status ||
                     request.resource.data.status in ['pending', 'processing', 'data_sent', 'completed']);
                    
-      // Prevent chat deletion to maintain message history
-      allow delete: if false;
+      // Allow vendors to delete chats where they are the vendor
+      allow delete: if isAuthenticated() && 
+                    isUnderRateLimit() &&
+                    resource.data.vendorId == request.auth.uid;
 
       // Messages subcollection under chats
       match /messages/{messageId} {
@@ -322,14 +324,14 @@ service cloud.firestore {
                      // Only allow updating isRead field
                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead']);
         
-        // Soft delete only (mark as deleted)
+        // Allow deleting messages if user is the sender (for clear/withdraw) 
+        // OR if they are the vendor of the chat (for dashboard cleanup)
         allow delete: if isAuthenticated() && 
                      isUnderRateLimit() &&
-                     isChatParticipant(chatId) &&
-                     request.auth.uid == resource.data.senderId &&
-                     // Only allow setting deleted flag
-                     request.resource.data.diff(resource.data).affectedKeys()
-                       .hasOnly(['deleted', 'deletedAt']);
+                     (
+                       resource.data.senderId == request.auth.uid || 
+                       get(/databases/$(database)/documents/chats/$(chatId)).data.vendorId == request.auth.uid
+                     );
       }
     }
 

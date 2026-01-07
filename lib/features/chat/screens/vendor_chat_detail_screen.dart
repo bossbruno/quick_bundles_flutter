@@ -7,6 +7,8 @@ import 'package:quick_bundles_flutter/services/fcm_v1_service.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/services.dart';
 import '../../../services/notification_service.dart';
+import '../../../../core/app_theme.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 class VendorChatDetailScreen extends StatefulWidget {
   final String chatId;
@@ -286,48 +288,100 @@ class _VendorChatDetailScreenState extends State<VendorChatDetailScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppTheme.background,
       appBar: AppBar(
-        title: Text('Chat with ${widget.buyerName}'),
+        backgroundColor: AppTheme.primary,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        centerTitle: true,
+        title: Text(
+          'Chat with ${widget.buyerName}',
+          style: GoogleFonts.poppins(
+            fontWeight: FontWeight.w600,
+            fontSize: 18,
+            color: Colors.white,
+          ),
+        ),
       ),
       body: Column(
         children: [
-          // Bundle info and order status (from chat document)
-          Card(
-            margin: const EdgeInsets.all(12),
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (bundleInfo != null) ...[
-                    Text(
-                      '${bundleInfo!['dataAmount']}GB ${bundleInfo!['provider'] ?? ''} - GHS${bundleInfo!['price']?.toStringAsFixed(2) ?? ''}',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(bundleInfo!['description'] ?? ''),
-                    const SizedBox(height: 4),
-                    FutureBuilder<DocumentSnapshot>(
-                      future: FirebaseFirestore.instance.collection('chats').doc(widget.chatId).get(),
-                      builder: (context, chatSnap) {
-                        if (!chatSnap.hasData || !chatSnap.data!.exists) return const SizedBox();
-                        final data = chatSnap.data!.data() as Map<String, dynamic>?;
-                        final recipient = data?['recipientNumber'] ?? '';
-                        return recipient.isNotEmpty
-                          ? Row(
+          // Order Info Card
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                )
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (bundleInfo != null) ...[
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${bundleInfo!['dataAmount']}GB ${bundleInfo!['provider'] ?? ''}',
+                              style: GoogleFonts.poppins(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                                color: AppTheme.textPrimary,
+                              ),
+                            ),
+                            Text(
+                              'GHS ${bundleInfo!['price']?.toStringAsFixed(2) ?? ''}',
+                              style: GoogleFonts.poppins(
+                                color: AppTheme.primary,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      _buildStatusBadge(orderStatus),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  const Divider(height: 1),
+                  const SizedBox(height: 12),
+                  StreamBuilder<DocumentSnapshot>(
+                    stream: FirebaseFirestore.instance.collection('chats').doc(widget.chatId).snapshots(),
+                    builder: (context, chatSnap) {
+                      if (!chatSnap.hasData || !chatSnap.data!.exists) return const SizedBox();
+                      final data = chatSnap.data!.data() as Map<String, dynamic>?;
+                      final recipient = data?['recipientNumber'] ?? '';
+                      final currentStatus = data?['status'] ?? 'pending';
+                      
+                      return Column(
+                        children: [
+                          if (recipient.isNotEmpty)
+                            Row(
                               children: [
-                                const Icon(Icons.phone_iphone, size: 16, color: Colors.blueGrey),
-                                const SizedBox(width: 6),
+                                Icon(Icons.phone_android, size: 16, color: AppTheme.textSecondary),
+                                const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
-                                    'Recipient: $recipient',
-                                    style: const TextStyle(fontWeight: FontWeight.bold),
-                                    overflow: TextOverflow.ellipsis,
+                                    recipient,
+                                    style: GoogleFonts.poppins(
+                                      fontWeight: FontWeight.w500,
+                                      color: AppTheme.textPrimary,
+                                    ),
                                   ),
                                 ),
                                 IconButton(
-                                  tooltip: 'Copy number',
-                                  icon: const Icon(Icons.copy, size: 18),
+                                  constraints: const BoxConstraints(),
+                                  padding: EdgeInsets.zero,
+                                  icon: Icon(Icons.copy, size: 18, color: AppTheme.primary),
                                   onPressed: () async {
                                     await Clipboard.setData(ClipboardData(text: recipient));
                                     if (mounted) {
@@ -338,174 +392,70 @@ class _VendorChatDetailScreenState extends State<VendorChatDetailScreen> {
                                   },
                                 ),
                               ],
-                            )
-                          : const SizedBox();
-                      },
-                    ),
-                  ],
-                  const SizedBox(height: 8),
-                  // Order status from chat document
-                  StreamBuilder<DocumentSnapshot>(
-                    stream: FirebaseFirestore.instance.collection('chats').doc(widget.chatId).snapshots(),
-                    builder: (context, chatSnap) {
-                      if (!chatSnap.hasData || !chatSnap.data!.exists) {
-                        return const SizedBox();
-                      }
-                      final chatData = chatSnap.data!.data() as Map<String, dynamic>?;
-                      String chatStatus = chatData?['status'] ?? 'pending';
-                      final vendorId = chatData?['vendorId'] as String?;
-                      final isVendor = user != null && vendorId != null && user!.uid == vendorId;
-                      
-                      return Row(
-                    children: [
-                      const Text('Order Status: '),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                              color: _statusColor(chatStatus),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                              chatStatus.replaceAll('_', ' ').toUpperCase(),
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      // Only show dropdown if user is the vendor, otherwise show read-only status
-                      if (isVendor)
-                        (chatStatus == 'completed'
-                          ? Chip(
-                              label: const Text('COMPLETED'),
-                              backgroundColor: Colors.grey,
-                              labelStyle: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
+                            ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Text(
+                                'Update Status: ',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                  color: AppTheme.textSecondary,
+                                ),
                               ),
-                            )
-                          : DropdownButton<String>(
-                            value: chatStatus,
-                        items: const [
-                          DropdownMenuItem(value: 'pending', child: Text('Pending')),
-                          DropdownMenuItem(value: 'processing', child: Text('Processing')),
-                          DropdownMenuItem(value: 'data_sent', child: Text('Data Sent')),
-                        ],
-                            onChanged: (val) async {
-                              if (val != null && user != null) {
-                                try {
-                                  // Verify user is still the vendor
-                                  final chatRef = FirebaseFirestore.instance.collection('chats').doc(widget.chatId);
-                                  final chatDoc = await chatRef.get();
-                                  
-                                  if (!chatDoc.exists) {
-                                    if (mounted) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(content: Text('Chat document not found.')),
-                                      );
-                                    }
-                                    return;
-                                  }
-                                  
-                                  final currentChatData = chatDoc.data() as Map<String, dynamic>?;
-                                  final currentVendorId = currentChatData?['vendorId'];
-                                  final currentBuyerId = currentChatData?['buyerId'];
-                                  
-                                  debugPrint('Chat Status Update - Chat ID: ${widget.chatId}');
-                                  debugPrint('Current User UID: ${user!.uid}');
-                                  debugPrint('Chat vendorId: $currentVendorId (type: ${currentVendorId.runtimeType})');
-                                  debugPrint('Chat buyerId: $currentBuyerId (type: ${currentBuyerId.runtimeType})');
-                                  
-                                  // Check if vendorId is a valid string and matches
-                                  if (currentVendorId == null || currentVendorId.toString().isEmpty) {
-                                    debugPrint('ERROR: vendorId is null or empty in chat document');
-                                    if (mounted) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(content: Text('Chat is missing vendor information. Cannot update status.')),
-                                      );
-                                    }
-                                    return;
-                                  }
-                                  
-                                  if (currentVendorId.toString() != user!.uid) {
-                                    debugPrint('ERROR: vendorId mismatch - Chat vendorId: $currentVendorId, Current user: ${user!.uid}');
-                                    if (mounted) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(content: Text('You are not authorized to update this chat status.')),
-                                      );
-                                    }
-                                    return;
-                                  }
-                                  
-                                  debugPrint('Vendor verification passed. Proceeding with status update...');
-                                  
-                                  final batch = FirebaseFirestore.instance.batch();
-                                  final now = FieldValue.serverTimestamp();
-                                    
-                                  // Update chat status (pending, processing, or data_sent)
-                                  batch.update(chatRef, {
-                                    'status': val,
-                                    'updatedAt': now,
-                                  });
-                                  
-                                  // If transaction exists, also update transaction status
-                                  if (activeOrderId != null && activeOrderId!.isNotEmpty) {
-                                    try {
-                                      final txRef = FirebaseFirestore.instance.collection('transactions').doc(activeOrderId);
-                                      final txDoc = await txRef.get();
-                                      if (txDoc.exists) {
-                                        batch.update(txRef, {
-                                          'status': val,
-                                          'updatedAt': now,
-                                        });
-                                      }
-                                    } catch (e) {
-                                      debugPrint('Error checking transaction: $e');
-                                      // Continue with chat update even if transaction check fails
-                                    }
-                                  }
-                                
-                                await batch.commit();
-                                  
-                                  // Update local state
-                                  if (mounted) {
-                                    setState(() {
-                                      orderStatus = val;
-                                    });
-                                  }
-                                } catch (e, stackTrace) {
-                                  debugPrint('Error updating status: $e');
-                                  debugPrint('Stack trace: $stackTrace');
-                                  String errorMessage = 'Failed to update status. Please try again.';
-                                  
-                                  final errorStr = e.toString().toLowerCase();
-                                  if (errorStr.contains('permission_denied') || errorStr.contains('permission-denied')) {
-                                    errorMessage = 'Permission denied. Verify you are the vendor for this chat.\n'
-                                        'Chat ID: ${widget.chatId}\n'
-                                        'Your UID: ${user!.uid}';
-                                    debugPrint('PERMISSION DENIED - Chat vendorId may not match current user UID');
-                                  } else if (errorStr.contains('not-found')) {
-                                    errorMessage = 'Chat or transaction document not found.';
-                                  } else {
-                                    errorMessage = 'Error: ${e.toString()}';
-                                  }
-                                  
-                                  if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text(errorMessage),
-                                        duration: const Duration(seconds: 5),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: currentStatus == 'completed'
+                                    ? Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                        decoration: BoxDecoration(
+                                          color: Colors.grey.shade100,
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        child: Text(
+                                          'ORDER COMPLETED',
+                                          style: GoogleFonts.poppins(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.grey.shade500,
+                                          ),
+                                        ),
+                                      )
+                                    : Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                                        decoration: BoxDecoration(
+                                          color: Colors.grey.shade50,
+                                          borderRadius: BorderRadius.circular(8),
+                                          border: Border.all(color: Colors.grey.shade200),
+                                        ),
+                                        child: DropdownButtonHideUnderline(
+                                          child: DropdownButton<String>(
+                                            value: currentStatus,
+                                            isExpanded: true,
+                                            icon: Icon(Icons.arrow_drop_down, color: AppTheme.primary),
+                                            style: GoogleFonts.poppins(
+                                              fontSize: 13,
+                                              color: AppTheme.textPrimary,
+                                            ),
+                                            items: const [
+                                              DropdownMenuItem(value: 'pending', child: Text('Pending')),
+                                              DropdownMenuItem(value: 'processing', child: Text('Processing')),
+                                              DropdownMenuItem(value: 'data_sent', child: Text('Data Sent')),
+                                            ],
+                                            onChanged: (val) => _handleStatusUpdate(val),
+                                          ),
+                                        ),
                                       ),
-                                    );
-                                  }
-                                }
-                              }
-                        },
-                      )),
-                    ],
+                              ),
+                            ],
+                          ),
+                        ],
                       );
                     },
                   ),
                 ],
-              ),
+              ],
             ),
           ),
           // Chat messages
@@ -532,90 +482,162 @@ class _VendorChatDetailScreenState extends State<VendorChatDetailScreen> {
                 return ListView.builder(
                   key: PageStorageKey<String>('vendor_chat_messages_${widget.chatId}'),
                   controller: _scrollController,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
                   itemCount: messages.length,
                   itemBuilder: (context, index) {
                     final msg = messages[index].data() as Map<String, dynamic>;
                     final isMe = msg['senderId'] == user!.uid;
                     final timestamp = msg['timestamp'] != null ? (msg['timestamp'] as Timestamp).toDate() : null;
                     final timeString = timestamp != null ? TimeOfDay.fromDateTime(timestamp).format(context) : '';
+                    
                     return _VendorChatMessageBubble(
                       key: ValueKey(messages[index].id),
                       isMe: isMe,
                       text: (msg['text'] ?? '').toString(),
                       imageUrl: msg['imageUrl']?.toString(),
                       timeString: timeString,
-                      maxBubbleWidth: maxBubbleWidth,
                     );
                   },
                 );
               },
             ),
           ),
+          
           // Message input
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: Row(
-                children: [
-                  Expanded(
+          Container(
+            padding: EdgeInsets.only(
+              left: 16, 
+              right: 16, 
+              top: 16,
+              bottom: MediaQuery.of(context).padding.bottom + 16
+            ),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, -4),
+                )
+              ],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    shape: BoxShape.circle,
+                  ),
+                  child: IconButton(
+                    icon: Icon(Icons.image_outlined, color: AppTheme.primary),
+                    onPressed: _pickImage,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(24),
+                    ),
                     child: TextField(
                       controller: _messageController,
-                      decoration: const InputDecoration(
-                        hintText: 'Type a message... 😊',
-                        border: OutlineInputBorder(),
+                      style: GoogleFonts.poppins(),
+                      decoration: InputDecoration(
+                        hintText: 'Type a message...',
+                        hintStyle: GoogleFonts.poppins(color: Colors.grey.shade400),
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.symmetric(vertical: 12),
                       ),
                       minLines: 1,
                       maxLines: 5,
-                      textInputAction: TextInputAction.newline,
-                      keyboardType: TextInputType.multiline,
-                      enableSuggestions: true,
+                      textInputAction: TextInputAction.send,
+                      onSubmitted: (_) => _sendMessage(),
                     ),
                   ),
-                  if (_imageFile != null)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: Stack(
-                        alignment: Alignment.topRight,
-                        children: [
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: Image.file(_imageFile!, width: 48, height: 48, fit: BoxFit.cover),
-                          ),
-                          GestureDetector(
-                            onTap: () => setState(() => _imageFile = null),
-                            child: Container(
-                              decoration: const BoxDecoration(
-                                color: Colors.black54,
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(Icons.close, color: Colors.white, size: 18),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  IconButton(
-                    icon: const Icon(Icons.attach_file),
-                    onPressed: _pickImage,
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  decoration: const BoxDecoration(
+                    color: AppTheme.primary,
+                    shape: BoxShape.circle,
                   ),
-                  IconButton(
+                  child: IconButton(
                     icon: _isSending
                         ? const SizedBox(
                             width: 20,
                             height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                           )
-                        : const Icon(Icons.send),
+                        : const Icon(Icons.send_rounded, color: Colors.white, size: 20),
                     onPressed: _isSending ? null : _sendMessage,
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ],
       ),
     );
+  }
+
+  Widget _buildStatusBadge(String status) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: _statusColor(status).withOpacity(0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _statusColor(status).withOpacity(0.2)),
+      ),
+      child: Text(
+        status.replaceAll('_', ' ').toUpperCase(),
+        style: GoogleFonts.poppins(
+          color: _statusColor(status),
+          fontWeight: FontWeight.bold,
+          fontSize: 12,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleStatusUpdate(String? val) async {
+    if (val != null && user != null) {
+      try {
+        final chatRef = FirebaseFirestore.instance.collection('chats').doc(widget.chatId);
+        final batch = FirebaseFirestore.instance.batch();
+        final now = FieldValue.serverTimestamp();
+          
+        batch.update(chatRef, {
+          'status': val,
+          'updatedAt': now,
+        });
+        
+        if (activeOrderId != null && activeOrderId!.isNotEmpty) {
+          final txRef = FirebaseFirestore.instance.collection('transactions').doc(activeOrderId);
+          batch.update(txRef, {
+            'status': val,
+            'updatedAt': now,
+          });
+        }
+        
+        await batch.commit();
+        if (mounted) {
+          setState(() {
+            orderStatus = val;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Status updated to ${val.replaceAll('_', ' ')}')),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error updating status: $e')),
+          );
+        }
+      }
+    }
   }
 }
 
@@ -626,40 +648,40 @@ class _VendorChatMessageBubble extends StatelessWidget {
     required this.text,
     required this.imageUrl,
     required this.timeString,
-    required this.maxBubbleWidth,
   });
-
-  static const EdgeInsets _margin = EdgeInsets.symmetric(vertical: 4, horizontal: 2);
-  static const EdgeInsets _padding = EdgeInsets.symmetric(horizontal: 14, vertical: 10);
-  static const EdgeInsets _imagePadding = EdgeInsets.only(bottom: 6);
-  static const double _imageWidth = 180;
 
   final bool isMe;
   final String text;
   final String? imageUrl;
   final String timeString;
-  final double maxBubbleWidth;
 
   @override
   Widget build(BuildContext context) {
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
-        margin: _margin,
-        padding: _padding,
-        constraints: BoxConstraints(maxWidth: maxBubbleWidth),
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.75,
+        ),
         decoration: BoxDecoration(
-          color: isMe ? Colors.green[100] : Colors.grey[200],
+          gradient: isMe ? const LinearGradient(
+            colors: [AppTheme.primary, AppTheme.secondary],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ) : null,
+          color: isMe ? null : Colors.white,
           borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(16),
-            topRight: const Radius.circular(16),
-            bottomLeft: Radius.circular(isMe ? 16 : 4),
-            bottomRight: Radius.circular(isMe ? 4 : 16),
+            topLeft: const Radius.circular(20),
+            topRight: const Radius.circular(20),
+            bottomLeft: Radius.circular(isMe ? 20 : 4),
+            bottomRight: Radius.circular(isMe ? 4 : 20),
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.04),
-              blurRadius: 4,
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 5,
               offset: const Offset(0, 2),
             ),
           ],
@@ -669,28 +691,34 @@ class _VendorChatMessageBubble extends StatelessWidget {
           children: [
             if (imageUrl != null)
               Padding(
-                padding: _imagePadding,
+                padding: const EdgeInsets.only(bottom: 8),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(12),
                   child: Image.network(
                     imageUrl!,
-                    width: _imageWidth,
+                    width: 200,
                     fit: BoxFit.cover,
-                    errorBuilder: (c, e, s) => const Icon(Icons.broken_image),
+                    errorBuilder: (c, e, s) => const Icon(Icons.broken_image, color: Colors.white70),
                   ),
                 ),
               ),
             if (text.isNotEmpty)
               Text(
                 text,
-                style: const TextStyle(fontSize: 15),
+                style: GoogleFonts.poppins(
+                  fontSize: 15,
+                  color: isMe ? Colors.white : AppTheme.textPrimary,
+                ),
                 softWrap: true,
               ),
             const SizedBox(height: 4),
             if (timeString.isNotEmpty)
               Text(
                 timeString,
-                style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                style: GoogleFonts.poppins(
+                  fontSize: 10,
+                  color: isMe ? Colors.white.withOpacity(0.7) : AppTheme.textSecondary,
+                ),
               ),
           ],
         ),

@@ -262,11 +262,32 @@ class _AuthWrapperState extends State<AuthWrapper> {
           if (kDebugMode) {
             print('🔐 AuthWrapper: No authenticated user found - showing login');
           }
-          final remembered = _remembered;
-          return LoginScreen(
-            initialEmail: remembered?.email,
-            initialPassword: remembered?.password,
-            initialRememberMe: remembered != null,
+          // Always fetch fresh credentials when showing login screen
+          return FutureBuilder<({String email, String password})?>(
+            future: AuthService().getRememberedCredentials(),
+            builder: (context, snapshot) {
+               // While we are reading from secure storage, we can still show the login screen
+               // defaulting to empty or using the old _remembered state temporarily 
+               // to avoid flickering. Or we can just wait for the future.
+               // Since getRememberedCredentials is fast, we can wait or show a loading,
+               // but showing a loading here might flicker.
+               // Best approach: If we have data, use it.
+               
+               final creds = snapshot.data;
+               
+               // Note: snapshot.connectionState waiting might be very brief.
+               // We pass 'creds' which will be null if not loaded yet or empty.
+               // But LoginScreen uses these as 'initial' values only on initState.
+               // If we re-build LoginScreen when future completes, the initState won't run again 
+               // unless we change the key.
+               
+               return LoginScreen(
+                 key: ValueKey('login_${creds?.email ?? 'empty'}'), // Force rebuild if email changes
+                 initialEmail: creds?.email,
+                 initialPassword: creds?.password,
+                 initialRememberMe: creds != null,
+               );
+            }
           );
         }
 

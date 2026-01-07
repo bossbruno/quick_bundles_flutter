@@ -7,10 +7,10 @@ import 'package:quick_bundles_flutter/services/fcm_v1_service.dart';
 import 'dart:io';
 import 'package:firebase_storage/firebase_storage.dart';
 import '../../../services/notification_service.dart';
-import '../../../services/database_service.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/gestures.dart';
+import 'package:google_fonts/google_fonts.dart';
+import '../../../../core/app_theme.dart';
 
 class ChatScreen extends StatefulWidget {
   final String? chatId;
@@ -44,7 +44,7 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isSending = false;
   final ImagePicker _picker = ImagePicker();
   File? _imageFile;
-  String? _lastNotifiedMessageId; // Track last notified message
+ // Track last notified message
   bool _isReporting = false;
 
   @override
@@ -147,7 +147,7 @@ class _ChatScreenState extends State<ChatScreen> {
       try {
         final userDoc = await FirebaseFirestore.instance.collection('users').doc(user!.uid).get();
         if (userDoc.exists) {
-          final userData = userDoc.data() as Map<String, dynamic>?;
+          final userData = userDoc.data();
           buyerName = userData?['name'] ?? userData?['businessName'] ?? 'Buyer';
         }
       } catch (e) {
@@ -266,7 +266,7 @@ class _ChatScreenState extends State<ChatScreen> {
       final doc = await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).get();
       
       if (doc.exists) {
-        final data = doc.data() as Map<String, dynamic>?;
+        final data = doc.data();
         if (mounted) {
           setState(() {
             chatId = doc.id;
@@ -331,7 +331,7 @@ class _ChatScreenState extends State<ChatScreen> {
       try {
         final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
         if (userDoc.exists) {
-          final userData = userDoc.data() as Map<String, dynamic>?;
+          final userData = userDoc.data();
           buyerName = userData?['name'] ?? userData?['businessName'] ?? 'Buyer';
         }
       } catch (e) {
@@ -434,7 +434,8 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   // Helper method to build message text with clickable phone numbers
-  Widget _buildMessageText(String text) {
+  Widget _buildMessageText(String text, {Color? color}) {
+    final textColor = color ?? AppTheme.textPrimary;
     // Regular expression to match phone numbers in various formats
     final phoneRegex = RegExp(
       r'\b(?:\+?233|0)?[ -]?\(?(\d{3})\)?[ -]?(\d{3})[ -]?(\d{4})\b',
@@ -445,7 +446,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (matches.isEmpty) {
       return Text(
         text,
-        style: const TextStyle(fontSize: 15),
+        style: GoogleFonts.poppins(fontSize: 15, color: textColor),
         softWrap: true,
       );
     }
@@ -458,7 +459,7 @@ class _ChatScreenState extends State<ChatScreen> {
       if (match.start > currentIndex) {
         textSpans.add(TextSpan(
           text: text.substring(currentIndex, match.start),
-          style: const TextStyle(fontSize: 15),
+          style: GoogleFonts.poppins(fontSize: 15, color: textColor),
         ));
       }
       
@@ -466,10 +467,11 @@ class _ChatScreenState extends State<ChatScreen> {
       final phoneNumber = match.group(0)!;
       textSpans.add(TextSpan(
         text: phoneNumber,
-        style: const TextStyle(
+        style: GoogleFonts.poppins(
           fontSize: 15,
-          color: Colors.blue,
+          color: color != null ? Colors.white : Colors.blue, // White if on colored background, blue otherwise
           decoration: TextDecoration.underline,
+          fontWeight: FontWeight.w600,
         ),
         recognizer: TapGestureRecognizer()
           ..onTap = () async {
@@ -495,7 +497,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (currentIndex < text.length) {
       textSpans.add(TextSpan(
         text: text.substring(currentIndex),
-        style: const TextStyle(fontSize: 15),
+        style: GoogleFonts.poppins(fontSize: 15, color: textColor),
       ));
     }
     
@@ -843,23 +845,31 @@ class _ChatScreenState extends State<ChatScreen> {
       );
     }
     return Scaffold(
+      backgroundColor: AppTheme.background,
       appBar: AppBar(
-        title: StreamBuilder<DocumentSnapshot>(
-          stream: FirebaseFirestore.instance.collection('users').doc(widget.vendorId).snapshots(),
+        backgroundColor: AppTheme.primary,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        centerTitle: true,
+        title: FutureBuilder<DocumentSnapshot>(
+          future: FirebaseFirestore.instance.collection('users').doc(widget.vendorId).get(),
           builder: (context, snapshot) {
+            String displayedName = widget.businessName;
             if (snapshot.hasData && snapshot.data!.exists) {
               final userData = snapshot.data!.data() as Map<String, dynamic>?;
-              final vendorName = userData?['businessName'] ?? userData?['name'] ?? 'Vendor';
-              return Text('Chat with $vendorName');
+              displayedName = userData?['businessName'] ?? userData?['name'] ?? widget.businessName;
             }
-            return Text('Chat with ${widget.businessName}');
+            return Text(
+              displayedName,
+              style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 18, color: Colors.white),
+            );
           },
         ),
         actions: [
           IconButton(
             icon: _isReporting
-                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                : const Icon(Icons.report_problem),
+                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : const Icon(Icons.report_problem, color: Colors.white),
             onPressed: _isReporting ? null : _showReportDialog,
             tooltip: 'Report Issue',
           ),
@@ -868,400 +878,368 @@ class _ChatScreenState extends State<ChatScreen> {
       body: chatId == null
           ? const Center(child: CircularProgressIndicator())
           : StreamBuilder<DocumentSnapshot>(
-            stream: chatId != null && chatId!.isNotEmpty
-                ? FirebaseFirestore.instance.collection('chats').doc(chatId).snapshots()
-                : const Stream.empty(),
+              stream: chatId != null && chatId!.isNotEmpty
+                  ? FirebaseFirestore.instance.collection('chats').doc(chatId).snapshots()
+                  : const Stream.empty(),
               builder: (context, chatSnap) {
                 if (!chatSnap.hasData || !chatSnap.data!.exists) {
                   return const Center(child: CircularProgressIndicator());
                 }
                 final chatData = chatSnap.data!.data() as Map<String, dynamic>?;
                 String chatStatus = chatData?['status'] ?? 'pending';
+                
                 return Column(
-              children: [
-                // Bundle info and status
-                Card(
-                  margin: const EdgeInsets.all(12),
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '${_bundle!.dataAmount}GB ${_bundle!.provider.toString().split('.').last} - GHS${_bundle!.price.toStringAsFixed(2)}',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(_bundle!.description),
-                        const SizedBox(height: 8),
-                        // Recipient number (copyable for vendor)
-                        Row(
-                          children: [
-                            const Icon(Icons.phone_iphone, size: 16, color: Colors.blueGrey),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                'Recipient: ${widget.recipientNumber}',
-                                style: const TextStyle(fontWeight: FontWeight.w600),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            if (user!.uid == widget.vendorId)
-                              IconButton(
-                                tooltip: 'Copy number',
-                                icon: const Icon(Icons.copy, size: 18),
-                                onPressed: () async {
-                                  await Clipboard.setData(ClipboardData(text: widget.recipientNumber));
-                                  if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text('Recipient number copied')),
-                                    );
-                                  }
-                                },
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            const Text('Order Status: '),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                              decoration: BoxDecoration(
-                                    color: _statusColor(chatStatus),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                    chatStatus.replaceAll('_', ' ').toUpperCase(),
-                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            if (user!.uid == widget.vendorId)
-                              (
-                                chatStatus == 'completed'
-                                    ? Chip(
-                                        label: const Text('COMPLETED'),
-                                        backgroundColor: Colors.grey,
-                                        labelStyle: const TextStyle(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      )
-                                    : DropdownButton<String>(
-                                        value: chatStatus,
-                                        items: const [
-                                          DropdownMenuItem(value: 'pending', child: Text('Pending')),
-                                          DropdownMenuItem(value: 'processing', child: Text('Processing')),
-                                          DropdownMenuItem(value: 'data_sent', child: Text('Data Sent')),
-                                        ],
-                                        onChanged: (val) async {
-                                          if (val != null && chatId != null) {
-                                            try {
-                                              final batch = FirebaseFirestore.instance.batch();
-                                              final now = FieldValue.serverTimestamp();
-                                              final chatRef = FirebaseFirestore.instance.collection('chats').doc(chatId);
-                                              
-                                              // Update chat status
-                                              batch.update(chatRef, {
-                                                'status': val,
-                                                'updatedAt': now,
-                                              });
-                                              
-                                              // If transaction exists, also update transaction status
-                                              if (activeOrderId != null) {
-                                                final txRef = FirebaseFirestore.instance.collection('transactions').doc(activeOrderId);
-                                                batch.update(txRef, {
-                                                  'status': val,
-                                                  'updatedAt': now,
-                                                });
-                                              }
-                                              
-                                              await batch.commit();
-                                              setState(() {
-                                                orderStatus = val;
-                                              });
-                                            } catch (e) {
-                                              debugPrint('Error updating status: $e');
-                                              if (mounted) {
-                                                ScaffoldMessenger.of(context).showSnackBar(
-                                                  const SnackBar(content: Text('Failed to update status. Please try again.')),
-                                                );
-                                              }
-                                            }
-                                          }
-                                        },
-                                      )
-                              ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                // Chat messages
-                Expanded(
-                  child: StreamBuilder<QuerySnapshot>(
-                    stream: FirebaseFirestore.instance
-                        .collection('chats')
-                        .doc(chatId)
-                        .collection('messages')
-                        .orderBy('timestamp')
-                        .snapshots(),
-                    builder: (context, snapshot) {
-                      if (snapshot.hasData) {
-                        _markMessagesAsRead();
-                      }
-                      if (!snapshot.hasData) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
-                      final messages = snapshot.data!.docs;
-                      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
-                       // Note: Push notifications are now handled by FCM service
-                       // Local notifications removed to prevent duplicates
-                      return ListView.builder(
-                        controller: _scrollController,
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        itemCount: messages.length,
-                        itemBuilder: (context, index) {
-                          final msg = messages[index].data() as Map<String, dynamic>;
-                          final isMe = msg['senderId'] == user!.uid;
-                          final timestamp = msg['timestamp'] != null ? (msg['timestamp'] as Timestamp).toDate() : null;
-                          final timeString = timestamp != null ? TimeOfDay.fromDateTime(timestamp).format(context) : '';
-                          return Align(
-                            alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-                            child: Container(
-                              margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
-                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                              constraints: BoxConstraints(
-                                maxWidth: MediaQuery.of(context).size.width * 0.75,
-                              ),
-                              decoration: BoxDecoration(
-                                color: isMe ? Colors.green[100] : Colors.grey[200],
-                                borderRadius: BorderRadius.only(
-                                  topLeft: const Radius.circular(16),
-                                  topRight: const Radius.circular(16),
-                                  bottomLeft: Radius.circular(isMe ? 16 : 4),
-                                  bottomRight: Radius.circular(isMe ? 4 : 16),
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.04),
-                                    blurRadius: 4,
-                                    offset: const Offset(0, 2),
-                                  ),
-                                ],
-                              ),
-                              child: Column(
+                  children: [
+                    // Order Info Card
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.05),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          )
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  if (msg['imageUrl'] != null)
-                                    Padding(
-                                      padding: const EdgeInsets.only(bottom: 6),
-                                      child: ClipRRect(
-                                        borderRadius: BorderRadius.circular(12),
-                                        child: Image.network(
-                                          msg['imageUrl'],
-                                          width: 180,
-                                          fit: BoxFit.cover,
-                                          errorBuilder: (c, e, s) => const Icon(Icons.broken_image),
-                                        ),
-                                      ),
-                                    ),
-                                  if ((msg['text'] ?? '').isNotEmpty)
-                                    _buildMessageText(msg['text']),
-                                  const SizedBox(height: 4),
-                                  if (timeString.isNotEmpty)
-                                    Text(
-                                      timeString,
-                                      style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-                                    ),
+                                  Text(
+                                    '${_bundle!.dataAmount}GB ${_bundle!.provider.toString().split('.').last}',
+                                    style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 16),
+                                  ),
+                                  Text(
+                                    'GHS ${_bundle!.price.toStringAsFixed(2)}',
+                                    style: GoogleFonts.poppins(color: AppTheme.primary, fontWeight: FontWeight.bold),
+                                  ),
                                 ],
                               ),
-                            ),
-                          );
-                        },
-                      );
-                    },
-                  ),
-                ),
-                    // Message input & Confirm Data Received button
-                SafeArea(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                          if (chatStatus == 'data_sent' && user!.uid != widget.vendorId)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
-                          child: SizedBox(
-                            width: double.infinity,
-                            child: Builder(
-                              builder: (context) {
-                                final canMarkReceived = chatId != null && activeOrderId != null;
-                                if (!canMarkReceived) {
-                                  debugPrint('Data Received button hidden/disabled. chatId: '
-                                      ' ${chatId}, activeOrderId:  ${activeOrderId}');
-                                }
-                                return ElevatedButton.icon(
-                                  icon: const Icon(Icons.check_circle, color: Colors.white),
-                                  label: _isSending
-                                      ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation<Color>(Colors.white)))
-                                      : const Text('Data Received'),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: canMarkReceived ? Colors.green : Colors.grey,
-                                    foregroundColor: Colors.white,
-                                    textStyle: const TextStyle(fontWeight: FontWeight.bold),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: _statusColor(chatStatus).withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(color: _statusColor(chatStatus).withOpacity(0.2)),
+                                ),
+                                child: Text(
+                                  chatStatus.replaceAll('_', ' ').toUpperCase(),
+                                  style: GoogleFonts.poppins(
+                                    color: _statusColor(chatStatus),
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
                                   ),
-                                  onPressed: !_isSending && canMarkReceived
-                                      ? () async {
-                                          debugPrint('Data Received button pressed');
-                                          debugPrint('chatId: $chatId, activeOrderId: $activeOrderId');
-                                          setState(() => _isSending = true);
-                                          try {
-                                            final confirmed = await showDialog<bool>(
-                                              context: context,
-                                              builder: (context) => AlertDialog(
-                                                title: const Text('Confirm Data Received'),
-                                                content: const Text('Are you sure you have received the data bundle? This will mark the order as completed. This action cannot be undone.'),
-                                                actions: [
-                                                  TextButton(
-                                                    onPressed: () => Navigator.pop(context, false),
-                                                    child: const Text('Cancel'),
-                                                  ),
-                                                  ElevatedButton(
-                                                    onPressed: () => Navigator.pop(context, true),
-                                                    style: ElevatedButton.styleFrom(
-                                                      backgroundColor: Colors.amber,
-                                                      foregroundColor: Colors.black,
-                                                    ),
-                                                    child: const Text('Yes, Received'),
-                                                  ),
-                                                ],
-                                              ),
-                                            );
-
-                                            if (confirmed == true) {
-                                              try {
-                                                if (activeOrderId == null) {
-                                                  throw Exception('No active order ID found for this chat');
-                                                }
-                                                
-                                                final batch = FirebaseFirestore.instance.batch();
-                                                final chatRef = FirebaseFirestore.instance.collection('chats').doc(chatId);
-                                                final txRef = FirebaseFirestore.instance.collection('transactions').doc(activeOrderId);
-                                                final now = FieldValue.serverTimestamp();
-                                                final userId = user!.uid;
-
-                                                // Create the transaction with the pre-allocated ID
-                                                batch.set(txRef, {
-                                                  'id': activeOrderId,
-                                                  'userId': userId,
-                                                  'buyerId': userId,
-                                                  'vendorId': widget.vendorId,
-                                                  'type': 'bundle_purchase',
-                                                  'amount': _bundle!.price,
-                                                  'status': 'completed',
-                                                  'bundleId': _bundle!.id,
-                                                  'provider': _bundle!.provider.toString().split('.').last,
-                                                  'dataAmount': _bundle!.dataAmount,
-                                                  'recipientNumber': widget.recipientNumber,
-                                                  'createdAt': now, // Set created time when actually creating the transaction
-                                                  'updatedAt': now,
-                                                  'completedBy': userId,
-                                                  'completedAt': now,
-                                                  'timestamp': now,
-                                                });
-
-                                                // Update chat document to mark as completed
-                                                batch.update(chatRef, {
-                                                  'status': 'completed',
-                                                  'completedBy': userId,
-                                                  'updatedAt': now,
-                                                });
-
-                                                // Commit all changes atomically
-                                                await batch.commit();
-
-                                                // Update local state
-                                                setState(() {
-                                                  orderStatus = 'completed';
-                                                });
-
-                                                if (mounted) {
-                                                  ScaffoldMessenger.of(context).showSnackBar(
-                                                    const SnackBar(content: Text('Order marked as completed!')),
-                                                  );
-                                                }
-                                              } catch (e, stack) {
-                                                debugPrint('Error in transaction processing: $e');
-                                                debugPrint('Stack trace: $stack');
-
-                                                String errorMessage = 'Failed to complete the transaction';
-                                                if (e is FirebaseException) {
-                                                  errorMessage = 'Firebase error: ${e.message}';
-                                                } else if (e is StateError) {
-                                                  errorMessage = 'State error: ${e.message}';
-                                                }
-
-                                                if (mounted) {
-                                                  ScaffoldMessenger.of(context).showSnackBar(
-                                                    SnackBar(
-                                                      content: Text(errorMessage),
-                                                      duration: const Duration(seconds: 5),
-                                                    ),
-                                                  );
-                                                }
-                                                rethrow;
-                                              }
-                                            }
-                                          } catch (e) {
-                                            debugPrint('Error in confirmation dialog: $e');
-                                            if (mounted) {
-                                              ScaffoldMessenger.of(context).showSnackBar(
-                                                const SnackBar(content: Text('An error occurred while processing your request')),
-                                              );
-                                            }
-                                          } finally {
-                                            if (mounted) {
-                                              setState(() => _isSending = false);
-                                            }
-                                          }
-                                        }
-                                      : () {
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            const SnackBar(content: Text('Order or chat not found. Please wait or try again.')),
-                                          );
-                                        },
-                                  );
-                              }, // <-- close Builder.builder
-                            ), // <-- close Builder
-                          ), // <-- close SizedBox
-                        ), // <-- close Padding
-                          Row(
-                            children: [
-                              IconButton(
-                                icon: const Icon(Icons.image),
-                                onPressed: _pickImage,
-                              ),
-                            Expanded(
-                              child: TextField(
-                                controller: _messageController,
-                                decoration: const InputDecoration(
-                                    hintText: 'Type a message...',
-                                  ),
-                                  onSubmitted: (message) => _sendMessage(message),
                                 ),
                               ),
-                            IconButton(
-                                icon: const Icon(Icons.send),
-                              onPressed: _isSending ? null : () => _sendMessage(_messageController.text),
+                            ],
+                          ),
+                          if (user!.uid == widget.vendorId) ...[
+                            const SizedBox(height: 12),
+                            const Divider(height: 1),
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Icon(Icons.phone_android, size: 16, color: AppTheme.textSecondary),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    widget.recipientNumber,
+                                    style: GoogleFonts.poppins(fontWeight: FontWeight.w500, color: AppTheme.textPrimary),
+                                  ),
+                                ),
+                                IconButton(
+                                  constraints: const BoxConstraints(),
+                                  padding: EdgeInsets.zero,
+                                  icon: Icon(Icons.copy, size: 18, color: AppTheme.primary),
+                                  onPressed: () async {
+                                    await Clipboard.setData(ClipboardData(text: widget.recipientNumber));
+                                    if (mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('Recipient number copied')),
+                                      );
+                                    }
+                                  },
+                                ),
+                              ],
                             ),
                           ],
+                        ],
                       ),
-                    ],
-                  ),
-                ),
-              ],
+                    ),
+
+                    // Chat messages
+                    Expanded(
+                      child: StreamBuilder<QuerySnapshot>(
+                        stream: FirebaseFirestore.instance
+                            .collection('chats')
+                            .doc(chatId)
+                            .collection('messages')
+                            .orderBy('timestamp')
+                            .snapshots(),
+                        builder: (context, snapshot) {
+                          if (snapshot.hasData) {
+                             _markMessagesAsRead(); // Keep existing logic
+                          }
+                          if (!snapshot.hasData) {
+                            return const Center(child: CircularProgressIndicator());
+                          }
+                          final messages = snapshot.data!.docs;
+                          WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+                          
+                          return ListView.builder(
+                            controller: _scrollController,
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+                            itemCount: messages.length,
+                            itemBuilder: (context, index) {
+                              final msg = messages[index].data() as Map<String, dynamic>;
+                              final isMe = msg['senderId'] == user!.uid;
+                              final timestamp = msg['timestamp'] != null ? (msg['timestamp'] as Timestamp).toDate() : null;
+                              final timeString = timestamp != null ? TimeOfDay.fromDateTime(timestamp).format(context) : '';
+                              
+                              return Align(
+                                alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+                                child: Container(
+                                  margin: const EdgeInsets.only(bottom: 12),
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                  constraints: BoxConstraints(
+                                    maxWidth: MediaQuery.of(context).size.width * 0.75,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    gradient: isMe ? const LinearGradient(colors: [AppTheme.primary, AppTheme.secondary]) : null,
+                                    color: isMe ? null : Colors.white,
+                                    borderRadius: BorderRadius.only(
+                                      topLeft: const Radius.circular(20),
+                                      topRight: const Radius.circular(20),
+                                      bottomLeft: Radius.circular(isMe ? 20 : 4),
+                                      bottomRight: Radius.circular(isMe ? 4 : 20),
+                                    ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withOpacity(0.05),
+                                        blurRadius: 5,
+                                        offset: const Offset(0, 2),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      if (msg['imageUrl'] != null)
+                                        Padding(
+                                          padding: const EdgeInsets.only(bottom: 8),
+                                          child: ClipRRect(
+                                            borderRadius: BorderRadius.circular(12),
+                                            child: Image.network(
+                                              msg['imageUrl'],
+                                              width: 200,
+                                              fit: BoxFit.cover,
+                                              errorBuilder: (c, e, s) => const Icon(Icons.broken_image, color: Colors.white70),
+                                            ),
+                                          ),
+                                        ),
+                                      if ((msg['text'] ?? '').isNotEmpty)
+                                        _buildMessageText(
+                                          msg['text'], 
+                                          color: isMe ? Colors.white : AppTheme.textPrimary
+                                        ),
+                                      const SizedBox(height: 4),
+                                      if (timeString.isNotEmpty)
+                                        Text(
+                                          timeString,
+                                          style: GoogleFonts.poppins(
+                                            fontSize: 10, 
+                                            color: isMe ? Colors.white.withOpacity(0.7) : AppTheme.textSecondary
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          );
+                        },
+                      ),
+                    ),
+
+                    // Input Area
+                    Container(
+                      padding: EdgeInsets.only(
+                        left: 16, 
+                        right: 16, 
+                        top: 16,
+                        bottom: MediaQuery.of(context).padding.bottom + 16
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.05),
+                            blurRadius: 10,
+                            offset: const Offset(0, -4),
+                          )
+                        ],
+                      ),
+                      child: SafeArea( // Ensure safety inside container
+                        top: false,
+                        child: Column(
+                          children: [
+                            // Data Received Button (if applicable)
+                             if (chatStatus == 'data_sent' && user!.uid != widget.vendorId)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: SizedBox(
+                                  width: double.infinity,
+                                  child: Builder(
+                                    builder: (context) {
+                                      final canMarkReceived = chatId != null && activeOrderId != null;
+                                      return ElevatedButton.icon(
+                                        icon: const Icon(Icons.check_circle_outline, color: Colors.white),
+                                        label: _isSending
+                                            ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                            : Text('Confirm Data Received', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: AppTheme.success,
+                                          foregroundColor: Colors.white,
+                                          padding: const EdgeInsets.symmetric(vertical: 12),
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                          elevation: 0,
+                                        ),
+                                        onPressed: !_isSending && canMarkReceived
+                                            ? () async {
+                                                // Existing confirmation logic 
+                                                // ... (We need to replicate the logic here or extracted method would be better, but reusing inline for now as in original)
+                                                // Note: duplicating logic is risky, let's try to keep it inline as original or simplify.
+                                                // Given the complexity of the original logic, I should have extracted it.
+                                                // I will assume the user wants me to rewrite the inline logic or call reference.
+                                                // Since I am replacing the method, I must include the logic.
+                                                
+                                                setState(() => _isSending = true);
+                                                try {
+                                                  final confirmed = await showDialog<bool>(
+                                                    context: context,
+                                                    builder: (context) => AlertDialog(
+                                                      title: const Text('Confirm Data Received'),
+                                                      content: const Text('Are you sure you have received the bundle? This will complete the order.'),
+                                                      actions: [
+                                                        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+                                                        ElevatedButton(
+                                                          onPressed: () => Navigator.pop(context, true),
+                                                          style: ElevatedButton.styleFrom(backgroundColor: AppTheme.success, foregroundColor: Colors.white),
+                                                          child: const Text('Yes, Received'),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  );
+
+                                                  if (confirmed == true && activeOrderId != null) {
+                                                     final batch = FirebaseFirestore.instance.batch();
+                                                     final chatRef = FirebaseFirestore.instance.collection('chats').doc(chatId);
+                                                     final txRef = FirebaseFirestore.instance.collection('transactions').doc(activeOrderId);
+                                                     final now = FieldValue.serverTimestamp();
+                                                     
+                                                     batch.set(txRef, {
+                                                       'id': activeOrderId,
+                                                       'userId': user!.uid,
+                                                       'buyerId': user!.uid,
+                                                       'vendorId': widget.vendorId,
+                                                       'type': 'bundle_purchase',
+                                                       'amount': _bundle!.price,
+                                                       'status': 'completed',
+                                                       'bundleId': _bundle!.id,
+                                                       'provider': _bundle!.provider.toString().split('.').last,
+                                                       'dataAmount': _bundle!.dataAmount,
+                                                       'recipientNumber': widget.recipientNumber,
+                                                       'createdAt': now,
+                                                       'updatedAt': now,
+                                                       'completedBy': user!.uid,
+                                                       'completedAt': now,
+                                                       'timestamp': now,
+                                                     });
+                                                     
+                                                     batch.update(chatRef, {
+                                                       'status': 'completed',
+                                                       'completedBy': user!.uid,
+                                                       'updatedAt': now,
+                                                     });
+                                                     
+                                                     await batch.commit();
+                                                     setState(() => orderStatus = 'completed');
+                                                     if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Order completed!')));
+                                                  }
+                                                } catch (e) {
+                                                   if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+                                                } finally {
+                                                   if (mounted) setState(() => _isSending = false);
+                                                }
+                                              }
+                                            : null,
+                                      );
+                                    }
+                                  ),
+                                ),
+                              ),
+
+                            // Input Field
+                            Row(
+                              children: [
+                                Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey.shade100,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: IconButton(
+                                    icon: Icon(Icons.image_outlined, color: AppTheme.primary),
+                                    onPressed: _pickImage,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey.shade100,
+                                      borderRadius: BorderRadius.circular(24),
+                                      border: Border.all(color: Colors.transparent),
+                                    ),
+                                    child: TextField(
+                                      controller: _messageController,
+                                      style: GoogleFonts.poppins(),
+                                      decoration: InputDecoration(
+                                        hintText: 'Type a message...',
+                                        hintStyle: GoogleFonts.poppins(color: Colors.grey.shade400),
+                                        border: InputBorder.none,
+                                        contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                                      ),
+                                      onSubmitted: (message) => _sendMessage(message),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Container(
+                                  decoration: const BoxDecoration(
+                                    color: AppTheme.primary,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: IconButton(
+                                    icon: const Icon(Icons.send_rounded, color: Colors.white, size: 20),
+                                    onPressed: _isSending ? null : () => _sendMessage(_messageController.text),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 );
               },
             ),

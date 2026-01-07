@@ -343,7 +343,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       ),
       floatingActionButton: Builder(
         builder: (context) {
-          if (DefaultTabController.of(context)?.index == 0) {
+          if (DefaultTabController.of(context).index == 0) {
             // Only show FAB on the Reports tab
             return FloatingActionButton.extended(
               onPressed: () async {

@@ -7,7 +7,6 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -22,7 +21,7 @@ import 'services/notification_service.dart';
 import 'AIRTELTIGOpage/at_tab.dart';
 import 'Ads_directory/ad_mob_service.dart';
 import 'services/auth_service.dart';
-
+import 'core/app_theme.dart';
 // Initialize notifications plugin
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
@@ -222,6 +221,8 @@ Future<void> _initializeNotificationsAndAds() async {
   } catch (_) {}
 }
 
+
+
 class MyApp extends StatelessWidget {
   const MyApp({Key? key}) : super(key: key);
 
@@ -231,50 +232,12 @@ class MyApp extends StatelessWidget {
       navigatorKey: NotificationService.navigatorKey,
       title: 'Quick Bundles Ghana',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Color(0xFFFFB300), // Ghana gold
-          primary: Color(0xFFFFB300), // Ghana gold
-          secondary: Color(0xFF43A047), // Ghana green
-          background: Color(0xFFF9F9F9),
-          surface: Colors.white,
-        ),
-        scaffoldBackgroundColor: Color(0xFFF9F9F9),
-        appBarTheme: AppBarTheme(
-          backgroundColor: Color(0xFFFFB300),
-          elevation: 0,
-          iconTheme: IconThemeData(color: Colors.white),
-          titleTextStyle: GoogleFonts.poppins(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-            fontSize: 20,
-          ),
-        ),
-        cardTheme: CardThemeData(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          elevation: 4,
-          margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        ),
-        textTheme: GoogleFonts.poppinsTextTheme(),
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Color(0xFFFFB300),
-            shape: StadiumBorder(),
-            textStyle: TextStyle(fontWeight: FontWeight.bold),
-          ),
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: Color(0xFFFFB300)),
-          ),
-        ),
-      ),
+      theme: AppTheme.lightTheme,
       home: const VodafonePage(),
     );
   }
 }
+
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -321,60 +284,78 @@ class _HomePage extends State<HomePage> {
     return DefaultTabController(
       length: 3,
       child: Scaffold(
-          appBar: AppBar(
-          title: const Text("Q U I C K  B U N D L E S"),
-            centerTitle: true,
+        appBar: AppBar(
+          title: Text(
+            "Quick Bundles",
+            style: GoogleFonts.poppins(
+              fontWeight: FontWeight.bold, 
+              letterSpacing: 0.5,
+              color: AppTheme.textPrimary,
+            ),
           ),
+          centerTitle: true,
+          elevation: 2,
+          backgroundColor: Colors.white,
+          foregroundColor: AppTheme.textPrimary,
+          shadowColor: Colors.black.withOpacity(0.1),
+        ),
         body: Column(
-              children: [
-                ButtonsTabBar(
-                  borderWidth: 2,
-              buttonMargin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                  radius: (100),
-                  splashColor: Colors.blueAccent,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 20),
-                  backgroundColor: Colors.blue[600],
-                  unselectedBackgroundColor: Colors.white,
-                  labelStyle: const TextStyle(
-                      color: Colors.white,
-                fontWeight: FontWeight.bold
+          children: [
+            Container(
+              margin: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(100),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
               ),
-                  unselectedBorderColor: Colors.blue,
-                  tabs: const [
-                    Tab(text: ("    MTN    ")),
-                    Tab(text: ("TELECEL")),
-                    Tab(text: ("    AT    ")),
-                  ],
+              child: ButtonsTabBar(
+                borderWidth: 0,
+                radius: 100,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                buttonMargin: const EdgeInsets.symmetric(horizontal: 8),
+                backgroundColor: AppTheme.secondary,
+                unselectedBackgroundColor: Colors.transparent,
+                labelStyle: GoogleFonts.poppins(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
                 ),
-                const Expanded(
-                  child: TabBarView(
-                    children: [
-                      MtnScreen(),
-                      VodafoneScreen(),
-                      TigoScreen(),
+                unselectedLabelStyle: GoogleFonts.poppins(
+                  color: AppTheme.textSecondary,
+                  fontWeight: FontWeight.w500,
+                  fontSize: 14,
+                ),
+                tabs: const [
+                  Tab(text: "MTN"),
+                  Tab(text: "Telecel"),
+                  Tab(text: "AT"),
                 ],
               ),
             ),
-                    ],
-                  ),
+            const Expanded(
+              child: TabBarView(
+                children: [
+                  MtnScreen(),
+                  VodafoneScreen(),
+                  TigoScreen(),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildLoginPage() {
-    final user = FirebaseAuth.instance.currentUser;
-    return Scaffold(
-      appBar: user == null
-          ? AppBar(
-        title: const Text('Login'),
-        centerTitle: true,
-            )
-          : null,
-      body: const Column(
-        children: [
-          Expanded(child: AuthWrapper()),
-        ],
-      ),
+    return const Scaffold(
+      body: AuthWrapper(),
     );
   }
 
@@ -392,24 +373,41 @@ class _HomePage extends State<HomePage> {
       bottomNavigationBar: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          BottomNavigationBar(
-            currentIndex: _selectedIndex,
-            onTap: (index) {
-              setState(() {
-                _selectedIndex = index;
-              });
-            },
-            items: const [
-              BottomNavigationBarItem(
-                icon: Icon(Icons.home),
-                label: 'Home',
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.store),
-                label: 'Marketplace',
-              ),
-            ],
+          Container(
+            decoration: BoxDecoration(
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 20,
+                  offset: const Offset(0, -5),
                 ),
+              ],
+            ),
+            child: BottomNavigationBar(
+              currentIndex: _selectedIndex,
+              onTap: (index) {
+                setState(() {
+                  _selectedIndex = index;
+                });
+              },
+              backgroundColor: Colors.white,
+              selectedItemColor: AppTheme.primary,
+              unselectedItemColor: AppTheme.textSecondary,
+              selectedLabelStyle: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+              unselectedLabelStyle: GoogleFonts.poppins(),
+              elevation: 0,
+              items: const [
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.home_rounded),
+                  label: 'Home',
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.storefront_rounded),
+                  label: 'Marketplace',
+                ),
+              ],
+            ),
+          ),
                 if (_bannerAd != null)
             Container(
               alignment: Alignment.center,

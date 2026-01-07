@@ -38,7 +38,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     try {
       // TODO: Implement Firebase authentication and user creation
       // This will be handled by you
-      final user = UserModel(
+      /* final user = UserModel(
         uid: '', // Will be set by Firebase
         email: _emailController.text,
         name: _nameController.text,
@@ -46,7 +46,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         isVendor: _isVendor,
         createdAt: DateTime.now(),
         lastActive: DateTime.now(),
-      );
+      ); */
 
       if (mounted) {
         // Navigate to home screen on success

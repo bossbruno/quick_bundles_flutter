@@ -109,9 +109,9 @@ class NotificationService {
       // Verify the chat is not completed before attaching
       final chatDoc = await _firestore.collection('chats').doc(chatId).get();
       if (!chatDoc.exists) return;
-      final chatData = chatDoc.data() as Map<String, dynamic>?;
+      final chatData = chatDoc.data();
       final status = (chatData?['status'] ?? 'pending').toString();
-      if (status == 'completed') return; // Skip completed chats
+      if (status == 'completed' || status == 'cancelled') return; // Skip completed chats
       
       final sub = _firestore
           .collection('chats')
@@ -165,7 +165,7 @@ class NotificationService {
         .listen((snap) async {
       if (!_buyerChatsLoaded) {
         for (final doc in snap.docs) {
-          final data = doc.data() as Map<String, dynamic>;
+          final data = doc.data();
           final status = (data['status'] ?? 'pending').toString();
           _lastNotifiedChatStatus[doc.id] = status;
         }
@@ -174,7 +174,7 @@ class NotificationService {
 
       if (_buyerChatsLoaded) {
         for (final change in snap.docChanges) {
-          final data = change.doc.data() as Map<String, dynamic>?;
+          final data = change.doc.data();
           if (data == null) continue;
           final status = (data['status'] ?? 'pending').toString();
           final prev = _lastNotifiedChatStatus[change.doc.id];
@@ -194,7 +194,7 @@ class NotificationService {
       }
 
       for (final doc in snap.docs) {
-        final data = doc.data() as Map<String, dynamic>;
+        final data = doc.data();
         final status = (data['status'] ?? 'pending').toString();
         if (status == 'completed') continue; // Skip completed chats
         
@@ -215,7 +215,7 @@ class NotificationService {
     _vendorChatsSub = _firestore
         .collection('chats')
         .where('vendorId', isEqualTo: userId)
-        .where('status', isNotEqualTo: 'completed')  // Exclude completed chats
+        .where('status', isNotEqualTo: 'completed')  // Exclude completed chats - primary filter
         .snapshots()
         .listen((snap) async {
       if (!_vendorChatsLoaded) {
@@ -228,12 +228,25 @@ class NotificationService {
         // Only notify for newly added chats
         for (final change in snap.docChanges) {
           if (change.type != DocumentChangeType.added) continue;
-          final data = change.doc.data() as Map<String, dynamic>?;
+          final data = change.doc.data();
           if (data == null) continue;
           
           // Skip if this is a completed chat
           final status = (data['status'] ?? 'pending').toString();
-          if (status == 'completed') continue;
+          if (status == 'completed' || status == 'cancelled') continue;
+
+          // Skip if this chat is old (syncing historical data)
+          // We only want to notify for GENUINELY new orders created/updated just now.
+          final Timestamp? timestamp = data['lastMessageTime'] as Timestamp?;
+          if (timestamp != null) {
+            final diff = DateTime.now().difference(timestamp.toDate());
+            if (diff.inMinutes > 10) {
+              if (kDebugMode) {
+                 print('Skipping new order notification for old chat ${change.doc.id} (${diff.inMinutes} mins old)');
+              }
+              continue; 
+            }
+          }
           
           final buyerName = (data['buyerName'] ?? 'Buyer').toString();
           final lastMessage = (data['lastMessage'] ?? 'New order started').toString();
@@ -248,11 +261,68 @@ class NotificationService {
         }
       }
 
+      // Check all docs in snapshot to manage subscribers
+      final currentChatIds = snap.docs.map((d) => d.id).toSet();
+      
+      // 1. Cleanup: Cancel subscriptions for chats that are no longer in the snapshot
+      // (e.g., status changed to 'completed' and fell out of query)
+      final activeSubIds = _chatMessageSubs.keys.toList();
+      for (final chatId in activeSubIds) {
+          // If we have a subscription but the chat is not in the current snapshot,
+          // it likely became completed/cancelled (filtered out by query).
+          // We must verify status before cancelling to be safe, or just relying on query.
+          // Since the query strictly excludes 'completed', disappearing implies it is 'completed'
+          // OR it was deleted.
+          if (!currentChatIds.contains(chatId)) {
+               // Double check if we should keep it for buyer side?
+               // But here we are in vendor logic. _chatMessageSubs is shared.
+               // We should be careful not to cancel if it's being listened to by buyer logic?
+               // The _chatMessageSubs is simple map. 
+               // Simplification: if it is NOT in the new snapshot, we cancel it 
+               // IF we are sure it was added by vendor logic? 
+               // Actually _chatMessageSubs mixes both. Use cleanup carefully.
+               
+               // Better approach: Check specific docs in snapshot.
+          }
+      }
+      
+      // Improved Strategy:
+      // Iterate through the CHANGE events to detect completion
+      for (final change in snap.docChanges) {
+          if (change.type == DocumentChangeType.removed) {
+              // Document removed from query -> likely completed
+              if (_chatMessageSubs.containsKey(change.doc.id)) {
+                  await _chatMessageSubs[change.doc.id]?.cancel();
+                  _chatMessageSubs.remove(change.doc.id);
+                  if (kDebugMode) print('Stopped listening to chat ${change.doc.id} (removed from query)');
+              }
+          }
+          if (change.type == DocumentChangeType.modified) {
+              final data = change.doc.data() as Map<String, dynamic>;
+              final status = (data['status'] ?? 'pending').toString();
+              if (status == 'completed' || status == 'cancelled') {
+                   if (_chatMessageSubs.containsKey(change.doc.id)) {
+                      await _chatMessageSubs[change.doc.id]?.cancel();
+                      _chatMessageSubs.remove(change.doc.id);
+                      if (kDebugMode) print('Stopped listening to chat ${change.doc.id} (completed/cancelled)');
+                   }
+                   continue;
+              }
+          }
+      }
+
       // Attach message listeners only for non-completed chats
       for (final doc in snap.docs) {
-        final data = doc.data() as Map<String, dynamic>;
+        final data = doc.data();
         final status = (data['status'] ?? 'pending').toString();
-        if (status == 'completed') continue; // Skip completed chats
+        if (status == 'completed' || status == 'cancelled') {
+            // Ensure no listener exists
+             if (_chatMessageSubs.containsKey(doc.id)) {
+                  await _chatMessageSubs[doc.id]?.cancel();
+                  _chatMessageSubs.remove(doc.id);
+             }
+            continue; 
+        }
         
         final buyerId = data['buyerId']?.toString();
         String otherName = 'Buyer';
@@ -528,7 +598,7 @@ class NotificationService {
         try {
           final decoded = jsonDecode(payload);
           if (decoded is Map) {
-            data = Map<String, dynamic>.from(decoded as Map);
+            data = Map<String, dynamic>.from(decoded);
           }
         } catch (_) {
           // Fallback: key=value map toString parsing
@@ -577,7 +647,7 @@ class NotificationService {
           if (vendorId != null) {
             final vendorDoc = await FirebaseFirestore.instance.collection('users').doc(vendorId).get();
             if (vendorDoc.exists) {
-              final vd = vendorDoc.data() as Map<String, dynamic>?;
+              final vd = vendorDoc.data();
               businessName = vd?['businessName'] ?? vd?['name'] ?? 'Vendor';
             }
           }

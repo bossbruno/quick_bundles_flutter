@@ -5,7 +5,6 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'package:quick_bundles_flutter/services/auth_service.dart';
-import 'package:quick_bundles_flutter/screens/email_verification_screen.dart';
 
 enum UserType { user, vendor }
 
@@ -33,10 +32,11 @@ class _SignupScreenState extends State<SignupScreen> {
   
   UserType _selectedUserType = UserType.user;
   bool _isLoading = false;
-  File? _ghanaCardImage;
+  File? _ghanaCardFrontImage;
+  File? _ghanaCardBackImage;
   final _imagePicker = ImagePicker();
 
-  Future<void> _pickGhanaCardImage() async {
+  Future<void> _pickGhanaCardImage({required bool isFront}) async {
     try {
       final pickedFile = await _imagePicker.pickImage(
         source: ImageSource.gallery,
@@ -45,7 +45,11 @@ class _SignupScreenState extends State<SignupScreen> {
       
       if (pickedFile != null) {
         setState(() {
-          _ghanaCardImage = File(pickedFile.path);
+          if (isFront) {
+            _ghanaCardFrontImage = File(pickedFile.path);
+          } else {
+            _ghanaCardBackImage = File(pickedFile.path);
+          }
         });
       }
     } catch (e) {
@@ -55,20 +59,18 @@ class _SignupScreenState extends State<SignupScreen> {
     }
   }
 
-  Future<String?> _uploadGhanaCardImage(String userId) async {
-    if (_ghanaCardImage == null) return null;
-
+  Future<String?> _uploadGhanaCardImage(String userId, File image, String side) async {
     try {
       final storageRef = FirebaseStorage.instance
           .ref()
           .child('ghana_cards')
-          .child('$userId.jpg');
+          .child('${userId}_$side.jpg');
 
-      await storageRef.putFile(_ghanaCardImage!);
+      await storageRef.putFile(image);
       return await storageRef.getDownloadURL();
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error uploading image: $e')),
+        SnackBar(content: Text('Error uploading $side image: $e')),
       );
       return null;
     }
@@ -198,6 +200,17 @@ class _SignupScreenState extends State<SignupScreen> {
   Future<void> _signUp() async {
     if (!_formKey.currentState!.validate()) return;
 
+    // Validate that at least one Ghana Card photo is uploaded
+    if (_ghanaCardFrontImage == null && _ghanaCardBackImage == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please upload at least one Ghana Card photo (front or back)'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     setState(() => _isLoading = true);
 
     try {
@@ -223,10 +236,24 @@ class _SignupScreenState extends State<SignupScreen> {
         phoneNumber: _phoneController.text.trim(),
       );
 
-      // Upload Ghana Card image if present
-      String? ghanaCardImageUrl;
-      if (_ghanaCardImage != null) {
-        ghanaCardImageUrl = await _uploadGhanaCardImage(userCredential.user!.uid);
+      // Upload Ghana Card images if present
+      String? ghanaCardFrontImageUrl;
+      String? ghanaCardBackImageUrl;
+      
+      if (_ghanaCardFrontImage != null) {
+        ghanaCardFrontImageUrl = await _uploadGhanaCardImage(
+          userCredential.user!.uid, 
+          _ghanaCardFrontImage!, 
+          'front'
+        );
+      }
+      
+      if (_ghanaCardBackImage != null) {
+        ghanaCardBackImageUrl = await _uploadGhanaCardImage(
+          userCredential.user!.uid, 
+          _ghanaCardBackImage!, 
+          'back'
+        );
       }
 
       // Prepare user data
@@ -241,9 +268,12 @@ class _SignupScreenState extends State<SignupScreen> {
         'isVerified': _selectedUserType == UserType.user,
       };
 
-      // Add Ghana Card image URL if uploaded
-      if (ghanaCardImageUrl != null) {
-        userData['ghanaCardImageUrl'] = ghanaCardImageUrl;
+      // Add Ghana Card image URLs if uploaded
+      if (ghanaCardFrontImageUrl != null) {
+        userData['ghanaCardFrontImageUrl'] = ghanaCardFrontImageUrl;
+      }
+      if (ghanaCardBackImageUrl != null) {
+        userData['ghanaCardBackImageUrl'] = ghanaCardBackImageUrl;
       }
 
       // Add vendor specific data if user is a vendor
@@ -329,7 +359,7 @@ class _SignupScreenState extends State<SignupScreen> {
                           Expanded(
                             child: RadioListTile<UserType>(
                               contentPadding: EdgeInsets.zero,
-                              title: const Text('User'),
+                              title: const Text('Buyer'),
                               value: UserType.user,
                               groupValue: _selectedUserType,
                               onChanged: (value) {
@@ -470,30 +500,53 @@ class _SignupScreenState extends State<SignupScreen> {
                 },
               ),
               const SizedBox(height: 16),
+              // Ghana Card Front
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16.0),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'Ghana Card Photo',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'Ghana Card Photo (Front)',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.shade100,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              'Optional',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.orange.shade900,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Upload a clear photo of your Ghana Card for verification purposes',
+                        'Upload a clear photo of the front of your Ghana Card',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                       const SizedBox(height: 8),
-                      if (_ghanaCardImage != null) ...[
+                      if (_ghanaCardFrontImage != null) ...[
                         ClipRRect(
                           borderRadius: BorderRadius.circular(8),
                           child: Image.file(
-                            _ghanaCardImage!,
+                            _ghanaCardFrontImage!,
                             height: 200,
                             width: double.infinity,
                             fit: BoxFit.cover,
@@ -502,9 +555,9 @@ class _SignupScreenState extends State<SignupScreen> {
                         const SizedBox(height: 8),
                       ],
                       ElevatedButton.icon(
-                        onPressed: _pickGhanaCardImage,
+                        onPressed: () => _pickGhanaCardImage(isFront: true),
                         icon: const Icon(Icons.upload_file, size: 20),
-                        label: Text(_ghanaCardImage == null ? 'Upload Ghana Card Photo' : 'Change Photo'),
+                        label: Text(_ghanaCardFrontImage == null ? 'Upload Front Photo' : 'Change Front Photo'),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Theme.of(context).primaryColor,
                           foregroundColor: Colors.white,
@@ -512,6 +565,98 @@ class _SignupScreenState extends State<SignupScreen> {
                       ),
                     ],
                   ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              // Ghana Card Back
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              'Ghana Card Photo (Back)',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.shade100,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              'Optional',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.orange.shade900,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Upload a clear photo of the back of your Ghana Card',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 8),
+                      if (_ghanaCardBackImage != null) ...[
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.file(
+                            _ghanaCardBackImage!,
+                            height: 200,
+                            width: double.infinity,
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                      ElevatedButton.icon(
+                        onPressed: () => _pickGhanaCardImage(isFront: false),
+                        icon: const Icon(Icons.upload_file, size: 20),
+                        label: Text(_ghanaCardBackImage == null ? 'Upload Back Photo' : 'Change Back Photo'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Theme.of(context).primaryColor,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'At least one photo (front or back) is required for verification',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.blue.shade900,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
               

@@ -123,7 +123,7 @@ class DatabaseService {
     final buyerDoc = await usersCollection.doc(buyerId).get();
     if (buyerDoc.exists) {
       final buyerData = buyerDoc.data() as Map<String, dynamic>?;
-      return buyerData?['name'] ?? buyerData?['displayName'] ?? '';
+      return buyerData?['name'] ?? buyerData?['displayName'] ?? buyerData?['email'] ?? '';
     }
     return '';
   }
