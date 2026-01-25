@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/gestures.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../../core/app_theme.dart';
+import '../../reviews/widgets/add_review_dialog.dart';
 
 class ChatScreen extends StatefulWidget {
   final String? chatId;
@@ -623,15 +624,65 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _pickImage() async {
     try {
-      final picked = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
+      final picked = await _picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1024,
+        maxHeight: 1024,
+        imageQuality: 70,
+      );
       if (picked != null) {
-        setState(() => _imageFile = File(picked.path));
+        final file = File(picked.path);
+        // Additional size check (2MB)
+        final size = await file.length();
+        if (size > 2 * 1024 * 1024) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Image is too large. Please select a smaller one.')),
+            );
+          }
+          return;
+        }
+        setState(() => _imageFile = file);
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to pick image: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to pick image: $e')),
+        );
+      }
     }
+  }
+
+  void _showFullScreenImage(String imageUrl) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => Scaffold(
+          backgroundColor: Colors.black,
+          appBar: AppBar(
+            backgroundColor: Colors.black,
+            foregroundColor: Colors.white,
+            elevation: 0,
+          ),
+          body: Center(
+            child: InteractiveViewer(
+              panEnabled: true,
+              minScale: 0.5,
+              maxScale: 4,
+              child: Image.network(
+                imageUrl,
+                fit: BoxFit.contain,
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  return const Center(child: CircularProgressIndicator(color: Colors.white));
+                },
+                errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, color: Colors.white, size: 50),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   void _updateStatus(String status) async {
@@ -837,6 +888,26 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  void _showReviewDialog() async {
+    // Only allow reviewing if user is NOT the vendor
+    if (user?.uid == widget.vendorId) return;
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AddReviewDialog(
+        vendorId: widget.vendorId,
+        vendorName: widget.businessName,
+        bundleId: widget.bundleId,
+      ),
+    );
+    
+    if (result == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Thank you using Quick Bundles!')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading || _bundle == null) {
@@ -873,6 +944,13 @@ class _ChatScreenState extends State<ChatScreen> {
             onPressed: _isReporting ? null : _showReportDialog,
             tooltip: 'Report Issue',
           ),
+          // Only show review button if user is NOT the vendor
+          if (user?.uid != widget.vendorId)
+            IconButton(
+              icon: const Icon(Icons.star_rate_rounded, color: Colors.amber),
+              onPressed: _showReviewDialog,
+              tooltip: 'Rate Vendor',
+            ),
         ],
       ),
       body: chatId == null
@@ -1035,13 +1113,19 @@ class _ChatScreenState extends State<ChatScreen> {
                                       if (msg['imageUrl'] != null)
                                         Padding(
                                           padding: const EdgeInsets.only(bottom: 8),
-                                          child: ClipRRect(
-                                            borderRadius: BorderRadius.circular(12),
-                                            child: Image.network(
-                                              msg['imageUrl'],
-                                              width: 200,
-                                              fit: BoxFit.cover,
-                                              errorBuilder: (c, e, s) => const Icon(Icons.broken_image, color: Colors.white70),
+                                          child: GestureDetector(
+                                            onTap: () => _showFullScreenImage(msg['imageUrl']),
+                                            child: ClipRRect(
+                                              borderRadius: BorderRadius.circular(12),
+                                              child: Hero(
+                                                tag: msg['imageUrl'],
+                                                child: Image.network(
+                                                  msg['imageUrl'],
+                                                  width: 200,
+                                                  fit: BoxFit.cover,
+                                                  errorBuilder: (c, e, s) => const Icon(Icons.broken_image, color: Colors.white70),
+                                                ),
+                                              ),
                                             ),
                                           ),
                                         ),
@@ -1186,6 +1270,39 @@ class _ChatScreenState extends State<ChatScreen> {
                                   ),
                                 ),
                               ),
+
+                              if (_imageFile != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 8),
+                                  child: Stack(
+                                    children: [
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(12),
+                                        child: Image.file(
+                                          _imageFile!,
+                                          height: 150,
+                                          width: double.infinity,
+                                          fit: BoxFit.cover,
+                                        ),
+                                      ),
+                                      Positioned(
+                                        top: 8,
+                                        right: 8,
+                                        child: GestureDetector(
+                                          onTap: () => setState(() => _imageFile = null),
+                                          child: Container(
+                                            padding: const EdgeInsets.all(4),
+                                            decoration: const BoxDecoration(
+                                              color: Colors.black54,
+                                              shape: BoxShape.circle,
+                                            ),
+                                            child: const Icon(Icons.close, color: Colors.white, size: 20),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
 
                             // Input Field
                             Row(

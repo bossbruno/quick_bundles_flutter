@@ -1,5 +1,10 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
-import '../models/user_model.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:image_picker/image_picker.dart';
+import '../../../services/database_service.dart';
+
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({Key? key}) : super(key: key);
@@ -19,6 +24,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _isLoading = false;
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
+  File? _ghanaCardFile;
+  final ImagePicker _picker = ImagePicker();
 
   @override
   void dispose() {
@@ -30,23 +37,66 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
+  Future<void> _pickGhanaCard() async {
+    try {
+      final picked = await _picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1024,
+        maxHeight: 1024,
+        imageQuality: 70,
+      );
+      if (picked != null) {
+        setState(() => _ghanaCardFile = File(picked.path));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to pick image: $e')),
+        );
+      }
+    }
+  }
+
   void _register() async {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isLoading = true);
 
     try {
-      // TODO: Implement Firebase authentication and user creation
-      // This will be handled by you
-      /* final user = UserModel(
-        uid: '', // Will be set by Firebase
-        email: _emailController.text,
-        name: _nameController.text,
-        phoneNumber: _phoneController.text,
-        isVendor: _isVendor,
-        createdAt: DateTime.now(),
-        lastActive: DateTime.now(),
-      ); */
+      if (_isVendor && _ghanaCardFile == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please upload your Ghana Card photo')),
+        );
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      // 1) Create Firebase User
+      final userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
+      );
+
+      final user = userCredential.user;
+      if (user == null) throw Exception('User creation failed');
+
+      String? ghanaCardUrl;
+      if (_isVendor && _ghanaCardFile != null) {
+        // 2) Upload Ghana Card to Firebase Storage
+        final storageRef = FirebaseStorage.instance
+            .ref()
+            .child('ghana_cards/${user.uid}.jpg');
+        await storageRef.putFile(_ghanaCardFile!);
+        ghanaCardUrl = await storageRef.getDownloadURL();
+      }
+
+      // 3) Create Database Document
+      await DatabaseService().createUserDocument(
+        user,
+        name: _nameController.text.trim(),
+        phoneNumber: _phoneController.text.trim(),
+        ghanaCardUrl: ghanaCardUrl,
+      );
 
       if (mounted) {
         // Navigate to home screen on success
@@ -201,9 +251,71 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     subtitle: const Text('Enable this if you want to sell data bundles'),
                     value: _isVendor,
                     onChanged: (value) {
-                      setState(() => _isVendor = value);
+                      setState(() {
+                        _isVendor = value;
+                        if (!value) _ghanaCardFile = null;
+                      });
                     },
                   ),
+                  if (_isVendor) ...[
+                    const SizedBox(height: 16),
+                    Text(
+                      'Ghana Card Verification',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey[700],
+                          ),
+                    ),
+                    const SizedBox(height: 8),
+                    InkWell(
+                      onTap: _pickGhanaCard,
+                      child: Container(
+                        height: 150,
+                        decoration: BoxDecoration(
+                          color: Colors.grey[100],
+                          border: Border.all(color: Colors.grey[300]!),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: _ghanaCardFile != null
+                            ? Stack(
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: Image.file(
+                                      _ghanaCardFile!,
+                                      width: double.infinity,
+                                      height: 150,
+                                      fit: BoxFit.cover,
+                                    ),
+                                  ),
+                                  Positioned(
+                                    top: 8,
+                                    right: 8,
+                                    child: GestureDetector(
+                                      onTap: () => setState(() => _ghanaCardFile = null),
+                                      child: Container(
+                                        padding: const EdgeInsets.all(4),
+                                        decoration: const BoxDecoration(
+                                          color: Colors.black54,
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Icon(Icons.close, color: Colors.white, size: 20),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              )
+                            : Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: const [
+                                  Icon(Icons.add_a_photo_outlined, size: 40, color: Colors.grey),
+                                  SizedBox(height: 8),
+                                  Text('Tap to upload Ghana Card photo', style: TextStyle(color: Colors.grey)),
+                                ],
+                              ),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 24),
 
                   // Register button

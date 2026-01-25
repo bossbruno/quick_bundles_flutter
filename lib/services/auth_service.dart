@@ -89,6 +89,7 @@ class AuthService {
     required String password,
     String? name,
     String? phoneNumber,
+    String? ghanaCardUrl,
   }) async {
     try {
       // Check if email already exists
@@ -112,6 +113,7 @@ class AuthService {
         name: name,
         phoneNumber: phoneNumber,
         emailVerified: false,
+        ghanaCardUrl: ghanaCardUrl,
       );
       
       // Save OneSignal player ID to Firestore

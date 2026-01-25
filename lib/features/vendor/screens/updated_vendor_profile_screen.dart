@@ -304,175 +304,274 @@ class _UpdatedVendorProfileScreenState extends State<UpdatedVendorProfileScreen>
                             : Theme.of(context).primaryColor) 
                         : Colors.grey[600],
                   ),
-                  text: 'Listings',
+                    text: 'Listings',
+                  ),
+                  Tab(
+                    icon: Icon(
+                      Icons.star_outline,
+                      color: _tabController.index == 2
+                          ? (Theme.of(context).brightness == Brightness.dark 
+                              ? Colors.white 
+                              : Theme.of(context).primaryColor) 
+                          : Colors.grey[600],
+                    ),
+                    text: 'Reviews',
+                  ),
+                ],
+              ),
+            ),
+            body: TabBarView(
+              controller: _tabController,
+              children: [
+                // Profile Tab
+                _buildProfileTab(user),
+                
+                // Listings Tab
+                _buildListingsTab(user),
+
+                // Reviews Tab
+                _buildReviewsTab(user),
+              ],
+            ),
+            floatingActionButton: _isCurrentUserVendor && _tabController.index == 1
+                ? FloatingActionButton(
+                    onPressed: _navigateToAddListing,
+                    backgroundColor: Theme.of(context).primaryColor,
+                    child: const Icon(Icons.add, color: Colors.white),
+                    tooltip: 'Add New Listing',
+                  )
+                : null,
+          );
+        },
+      );
+    }
+    
+    Widget _buildReviewsTab(UserModel user) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.vendorId)
+          .collection('reviews')
+          .orderBy('timestamp', descending: true)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Center(child: Text('Error: ${snapshot.error}'));
+        }
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        
+        final reviews = snapshot.data?.docs ?? [];
+        if (reviews.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.rate_review_outlined, size: 64, color: Colors.grey[300]),
+                const SizedBox(height: 16),
+                Text(
+                  'No reviews yet',
+                  style: TextStyle(fontSize: 18, color: Colors.grey[500]),
                 ),
               ],
             ),
-          ),
-          body: TabBarView(
-            controller: _tabController,
-            children: [
-              // Profile Tab
-              _buildProfileTab(user),
-              
-              // Listings Tab
-              _buildListingsTab(user),
-            ],
-          ),
-          floatingActionButton: _isCurrentUserVendor && _tabController.index == 1
-              ? FloatingActionButton(
-                  onPressed: _navigateToAddListing,
-                  backgroundColor: Theme.of(context).primaryColor,
-                  child: const Icon(Icons.add, color: Colors.white),
-                  tooltip: 'Add New Listing',
-                )
-              : null,
+          );
+        }
+
+        return ListView.separated(
+          padding: const EdgeInsets.all(16),
+          itemCount: reviews.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 16),
+          itemBuilder: (context, index) {
+            final data = reviews[index].data() as Map<String, dynamic>;
+            final rating = (data['rating'] ?? 0.0).toDouble();
+            final comment = data['comment'] ?? '';
+            final imageUrl = data['imageUrl'];
+            final reviewerName = data['reviewerName'] ?? 'Anonymous';
+            final timestamp = (data['timestamp'] as Timestamp?)?.toDate();
+
+            return Card(
+              elevation: 2,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          reviewerName,
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                        ),
+                        if (timestamp != null)
+                          Text(
+                            '${timestamp.day}/${timestamp.month}/${timestamp.year}',
+                            style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: List.generate(5, (i) {
+                        return Icon(
+                          i < rating ? Icons.star : Icons.star_border,
+                          color: Colors.amber,
+                          size: 16,
+                        );
+                      }),
+                    ),
+                    if (comment.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(comment),
+                    ],
+                    if (imageUrl != null) ...[
+                      const SizedBox(height: 8),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.network(
+                          imageUrl,
+                          height: 150,
+                          width: double.infinity,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) => 
+                              const Icon(Icons.broken_image, color: Colors.grey),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            );
+          },
         );
       },
     );
   }
-
   Widget _buildProfileTab(UserModel user) {
     return SingleChildScrollView(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const SizedBox(height: 16),
-                      Center(
-                        child: CircleAvatar(
-                          radius: 50,
-                          backgroundColor: Theme
-                              .of(context)
-                              .primaryColor
-                              .withOpacity(0.1),
-                          child: const Icon(
-                            Icons.storefront,
-                            size: 60,
-                            color: Colors.amber,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      Text(
-                        user.name,
-                        style: GoogleFonts.poppins(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        user.email,
-                        style: TextStyle(
-                          color: Colors.grey[600],
-                          fontSize: 16,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 24),
-
-                      // Rating and Transactions
-                      Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16.0),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                            children: [
-                              _buildStatColumn(
-                                Icons.star,
-                                'Rating',
-                                user.rating.toStringAsFixed(1),
-                                color: Colors.amber,
-                              ),
-                              _buildStatColumn(
-                                Icons.swap_horiz,
-                                'Transactions',
-                                user.totalTransactions.toString(),
-                              ),
-                              _buildStatColumn(
-                                Icons.thumb_up,
-                                'Success Rate',
-                                '${user.successRate?.toStringAsFixed(0) ??
-                                    'N/A'}%',
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-
-                      // Vendor Info Section
-                      const SizedBox(height: 24),
-                      const Text(
-                        'Vendor Information',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const Divider(height: 24),
-                      _buildInfoRow(
-                          'Business Name', user.businessName ?? 'Not provided'),
-                      _buildInfoRow('Phone', user.phone ?? 'Not provided'),
-                      _buildInfoRow(
-                          'Location', user.location ?? 'Not provided'),
-                      _buildInfoRow('Member Since',
-                          user.joinedDate?.toString().split(' ')[0] ?? 'N/A'),
-
-                      // About Section
-                      if (user.about?.isNotEmpty ?? false) ...[
-                        const SizedBox(height: 24),
-                        const Text(
-                          'About',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const Divider(height: 24),
-                        Text(
-                          user.about!,
-                          style: const TextStyle(fontSize: 16, height: 1.5),
-                        ),
-                      ],
-
-                      // Contact Button (visible to non-vendor users)
-                      if (!_isCurrentUserVendor) ...[
-                        const SizedBox(height: 32),
-                        ElevatedButton.icon(
-                          onPressed: () {
-                            // TODO: Implement contact vendor
-                          },
-                          icon: const Icon(Icons.chat),
-                          label: const Text('Contact Vendor'),
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                          ),
-                        ),
-                        const SizedBox(height: 24),
-                      ],
-
-                      // Delete Account Button (visible only to current vendor)
-                      if (_isCurrentUserVendor) ...[
-                        const SizedBox(height: 32),
-                        const Divider(height: 24),
-                        TextButton.icon(
-                          onPressed: _isDeleting ? null : _confirmAccountDeletion,
-                          icon: const Icon(Icons.delete_forever, color: Colors.red),
-                          label: const Text('Delete account & data', style: TextStyle(color: Colors.red)),
-                          style: TextButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                          ),
-                        ),
-                        const SizedBox(height: 24),
-                      ],
-                    ],
-                  )
-  );
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const SizedBox(height: 16),
+          Center(
+            child: CircleAvatar(
+              radius: 50,
+              backgroundColor: Theme.of(context).primaryColor.withValues(alpha: 0.1),
+              child: const Icon(
+                Icons.storefront,
+                size: 60,
+                color: Colors.amber,
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            user.name,
+            style: GoogleFonts.poppins(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            user.email,
+            style: TextStyle(
+              color: Colors.grey[600],
+              fontSize: 16,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 24),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _buildStatColumn(
+                    Icons.star,
+                    'Rating',
+                    user.rating.toStringAsFixed(1),
+                    color: Colors.amber,
+                  ),
+                  _buildStatColumn(
+                    Icons.swap_horiz,
+                    'Transactions',
+                    user.totalTransactions.toString(),
+                  ),
+                  _buildStatColumn(
+                    Icons.thumb_up,
+                    'Success Rate',
+                    '${user.successRate?.toStringAsFixed(0) ?? 'N/A'}%',
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+          const Text(
+            'Vendor Information',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const Divider(height: 24),
+          _buildInfoRow('Business Name', user.businessName ?? 'Not provided'),
+          _buildInfoRow('Phone', user.phone ?? 'Not provided'),
+          _buildInfoRow('Location', user.location ?? 'Not provided'),
+          _buildInfoRow('Member Since', user.joinedDate?.toString().split(' ')[0] ?? 'N/A'),
+          if (user.about?.isNotEmpty ?? false) ...[
+            const SizedBox(height: 24),
+            const Text(
+              'About',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const Divider(height: 24),
+            Text(
+              user.about!,
+              style: const TextStyle(fontSize: 16, height: 1.5),
+            ),
+          ],
+          if (!_isCurrentUserVendor) ...[
+            const SizedBox(height: 32),
+            ElevatedButton.icon(
+              onPressed: () {
+                // TODO: Implement contact vendor
+              },
+              icon: const Icon(Icons.chat),
+              label: const Text('Contact Vendor'),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+            ),
+            const SizedBox(height: 24),
+          ],
+          if (_isCurrentUserVendor) ...[
+            const SizedBox(height: 32),
+            const Divider(height: 24),
+            TextButton.icon(
+              onPressed: _isDeleting ? null : _confirmAccountDeletion,
+              icon: const Icon(Icons.delete_forever, color: Colors.red),
+              label: const Text('Delete account & data', style: TextStyle(color: Colors.red)),
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+              ),
+            ),
+            const SizedBox(height: 24),
+          ],
+        ],
+      ),
+    );
   }
 
-  // Filter chips for better UX
   Widget _buildFilterChips() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
@@ -587,7 +686,7 @@ class _UpdatedVendorProfileScreenState extends State<UpdatedVendorProfileScreen>
                         ],
                       ),
                       leading: CircleAvatar(
-                        backgroundColor: Theme.of(context).primaryColor.withOpacity(0.1),
+                        backgroundColor: Theme.of(context).primaryColor.withValues(alpha: 0.1),
                         child: Text(
                           bundle.provider.toString().split('.').last[0],
                           style: const TextStyle(fontWeight: FontWeight.bold),
@@ -616,6 +715,5 @@ class _UpdatedVendorProfileScreenState extends State<UpdatedVendorProfileScreen>
       },
     );
   }
-  // No need for duplicate methods here
 }
 

@@ -6,7 +6,6 @@ import 'package:quick_bundles_flutter/core/firebase/firebase_init.dart';
 import 'package:quick_bundles_flutter/features/auth/screens/login_screen.dart';
 import 'package:quick_bundles_flutter/features/marketplace/screens/marketplace_screen.dart';
 import 'package:quick_bundles_flutter/features/vendor/screens/vendor_dashboard_screen.dart';
-import 'package:quick_bundles_flutter/services/auth_service.dart';
 
 class AuthWrapper extends StatefulWidget {
   const AuthWrapper({super.key});
@@ -20,40 +19,6 @@ class _AuthWrapperState extends State<AuthWrapper> {
   bool _initialized = false;
   bool _error = false;
   String? _errorMessage;
-  bool _autoLoginAttempted = false;
-  ({String email, String password})? _remembered;
-
-  Future<bool> _tryAutoLoginIfPossible() async {
-    if (_autoLoginAttempted) {
-      if (kDebugMode) print('🚫 AuthWrapper: Auto-login already attempted, skipping');
-      return false;
-    }
-    _autoLoginAttempted = true;
-
-    final authService = AuthService();
-    final creds = await authService.getRememberedCredentials();
-    _remembered = creds;
-    if (creds == null) {
-      if (kDebugMode) print('❌ AuthWrapper: No remembered credentials found');
-      return false;
-    }
-
-    if (kDebugMode) print('🔐 AuthWrapper: Attempting auto-login for: ${creds.email}');
-    try {
-      await authService.signInWithEmailAndPassword(
-        email: creds.email,
-        password: creds.password,
-      );
-      final success = authService.currentUser != null;
-      if (kDebugMode) print('🎉 AuthWrapper: Auto-login ${success ? 'succeeded' : 'failed'}');
-      return success;
-    } catch (e) {
-      if (kDebugMode) {
-        print('⚠️ AuthWrapper: Auto-login failed: $e');
-      }
-      return false;
-    }
-  }
 
   @override
   void initState() {
@@ -68,95 +33,24 @@ class _AuthWrapperState extends State<AuthWrapper> {
         await FirebaseInit.initialize();
       }
       
-      // Give Firebase Auth time to restore persisted session from local storage
-      // This is critical when app reopens - auth state needs time to be restored
-      await Future.delayed(const Duration(milliseconds: 500));
+      // Wait for auth state to be ready - Firebase Auth persists state automatically on mobile
+      // Listen to auth state changes stream to wait for initial state
+      await _auth.authStateChanges().first.timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          // Timeout is okay - we'll proceed with current user check
+          return _auth.currentUser;
+        },
+      );
       
-      // Check current user immediately (Firebase Auth persists on mobile automatically)
-      var currentUser = _auth.currentUser;
-      
+      // Check if user is already signed in
+      final currentUser = _auth.currentUser;
       if (kDebugMode) {
-        print('🔐 AuthWrapper: Initial check - User: ${currentUser?.uid ?? 'null'}');
-      }
-      
-      // Wait for auth state changes stream to emit initial state
-      // This ensures we catch the persisted auth state when app reopens
-      try {
-        final streamUser = await _auth.authStateChanges().first.timeout(
-          const Duration(seconds: 3),
-          onTimeout: () {
-            // If timeout, return currentUser as fallback
-            // This handles cases where stream doesn't emit but user exists
-            if (kDebugMode) {
-              print('⚠️ AuthWrapper: Stream timeout, using currentUser fallback');
-            }
-            return _auth.currentUser;
-          },
-        );
-        
-        // Prefer stream data over direct currentUser check
-        currentUser = streamUser ?? currentUser;
-        
-        if (kDebugMode) {
-          print('🔐 AuthWrapper: After stream - User: ${currentUser?.uid ?? 'null'}');
-        }
-      } catch (e) {
-        // Fallback to currentUser if stream fails
-        if (kDebugMode) {
-          print('⚠️ AuthWrapper: Stream error: $e, using currentUser fallback');
-        }
-        currentUser = _auth.currentUser ?? currentUser;
-      }
-      
-      // Final check - get the most up-to-date user from Firebase Auth
-      currentUser = _auth.currentUser ?? currentUser;
-      
-      // If we have a user, verify the token is still valid
-      if (currentUser != null) {
-        try {
-          // Reload to refresh the token and verify it's still valid
-          // This helps restore the session if it was persisted
-          await currentUser.reload();
-          
-          // Get refreshed user after reload
-          currentUser = _auth.currentUser ?? currentUser;
-          
-          if (kDebugMode) {
-            print('✅ AuthWrapper: User session restored successfully');
-            print('   User ID: ${currentUser.uid}');
-            print('   Email: ${currentUser.email}');
-            print('   Email Verified: ${currentUser.emailVerified}');
-            print('   Last Sign In: ${currentUser.metadata.lastSignInTime}');
-            print('   Creation Time: ${currentUser.metadata.creationTime}');
-          }
-        } catch (e) {
-          // If reload fails, the token might be expired or invalid
-          // Check if it's a token expiry error or network error
-          if (kDebugMode) {
-            print('⚠️ AuthWrapper: Could not reload user token: $e');
-            // If token is expired, currentUser will be null after error
-            // But we'll let the StreamBuilder handle this - it will show login if needed
-            currentUser = _auth.currentUser ?? currentUser;
-            if (currentUser == null) {
-              print('   Token expired or invalid - user needs to sign in again');
-            } else {
-              print('   Using existing user despite reload error');
-            }
-          }
-        }
-      } else {
-        if (kDebugMode) {
-          print('ℹ️ AuthWrapper: No persisted session found');
-        }
-
-        // Try auto-login using securely stored credentials (Remember me)
-        await _tryAutoLoginIfPossible();
-        
-        // Refresh remembered credentials in case they changed during this session
-        final refreshed = await AuthService().getRememberedCredentials();
-        _remembered = refreshed;
-        if (kDebugMode) {
-          print('🔄 AuthWrapper: Refreshed credentials - email: ${refreshed?.email ?? 'null'}');
+        print('Current user on init: ${currentUser?.uid ?? 'null'}');
+        if (currentUser != null) {
+          print('User email: ${currentUser.email}');
+          print('User metadata - Created: ${currentUser.metadata.creationTime}');
+          print('User metadata - Last sign in: ${currentUser.metadata.lastSignInTime}');
         }
       }
       
@@ -164,7 +58,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
       
     } catch (e) {
       if (kDebugMode) {
-        print('❌ Error initializing auth: $e');
+        print('Error initializing auth: $e');
       }
       setState(() {
         _error = true;
@@ -219,10 +113,8 @@ class _AuthWrapperState extends State<AuthWrapper> {
     return StreamBuilder<User?>(
       stream: _auth.authStateChanges(),
       builder: (context, snapshot) {
-        // Show loading indicator while the auth stream is establishing its initial state.
-        // On cold starts (especially after swiping the app away), Firebase Auth may take
-        // a moment to restore the persisted session.
-        if (snapshot.connectionState == ConnectionState.waiting) {
+        // Show loading indicator while checking auth state initially
+        if (snapshot.connectionState == ConnectionState.waiting && !_initialized) {
           return const Scaffold(
             body: Center(
               child: CircularProgressIndicator(),
@@ -235,65 +127,24 @@ class _AuthWrapperState extends State<AuthWrapper> {
           if (kDebugMode) {
             print('Auth state error: ${snapshot.error}');
           }
-          // On error, still check currentUser as fallback
-          final fallbackUser = _auth.currentUser;
-          if (fallbackUser == null) {
-            return const LoginScreen();
-          }
-          // Continue with fallback user if available
+          return const LoginScreen();
         }
 
         // Check current user - Firebase Auth automatically persists auth state on mobile
-        // Priority: snapshot.data (from stream) > currentUser (direct check)
-        // This ensures we get the persisted auth state when app reopens
-        var user = snapshot.data ?? _auth.currentUser;
-        
-        // If snapshot has no data but connection is active, double-check currentUser
-        // This handles the case where the stream hasn't emitted yet but user exists
-        if (user == null && snapshot.connectionState == ConnectionState.active) {
-          user = _auth.currentUser;
-          if (kDebugMode && user != null) {
-            print('🔐 AuthWrapper: Stream empty but currentUser exists: ${user.uid}');
-          }
-        }
+        // If snapshot has no data, also check currentUser directly as fallback
+        final user = snapshot.data ?? _auth.currentUser;
 
         // If user is not authenticated, show login screen
         if (user == null) {
           if (kDebugMode) {
-            print('🔐 AuthWrapper: No authenticated user found - showing login');
+            print('No authenticated user found');
           }
-          // Always fetch fresh credentials when showing login screen
-          return FutureBuilder<({String email, String password})?>(
-            future: AuthService().getRememberedCredentials(),
-            builder: (context, snapshot) {
-               // While we are reading from secure storage, we can still show the login screen
-               // defaulting to empty or using the old _remembered state temporarily 
-               // to avoid flickering. Or we can just wait for the future.
-               // Since getRememberedCredentials is fast, we can wait or show a loading,
-               // but showing a loading here might flicker.
-               // Best approach: If we have data, use it.
-               
-               final creds = snapshot.data;
-               
-               // Note: snapshot.connectionState waiting might be very brief.
-               // We pass 'creds' which will be null if not loaded yet or empty.
-               // But LoginScreen uses these as 'initial' values only on initState.
-               // If we re-build LoginScreen when future completes, the initState won't run again 
-               // unless we change the key.
-               
-               return LoginScreen(
-                 key: ValueKey('login_${creds?.email ?? 'empty'}'), // Force rebuild if email changes
-                 initialEmail: creds?.email,
-                 initialPassword: creds?.password,
-                 initialRememberMe: creds != null,
-               );
-            }
-          );
+          return const LoginScreen();
         }
 
         // User is authenticated, check their profile
         if (kDebugMode) {
-          print('🔐 AuthWrapper: User authenticated: ${user.uid}, Email: ${user.email}');
+          print('User authenticated: ${user.uid}, Email: ${user.email}');
         }
         return FutureBuilder<DocumentSnapshot>(
           future: FirebaseFirestore.instance
@@ -310,37 +161,16 @@ class _AuthWrapperState extends State<AuthWrapper> {
 
             // Handle errors or missing user data
             if (userSnapshot.hasError || !userSnapshot.hasData || !userSnapshot.data!.exists) {
-              return Scaffold(
-                body: Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.wifi_off, size: 48),
-                        const SizedBox(height: 16),
-                        Text(
-                          userSnapshot.hasError
-                              ? 'Unable to load your profile right now. Please check your connection and try again.'
-                              : 'Setting up your profile. Please try again.',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(fontSize: 16),
-                        ),
-                        const SizedBox(height: 24),
-                        ElevatedButton(
-                          onPressed: () {
-                            setState(() {
-                              _initialized = false;
-                              _initializeAuth();
-                            });
-                          },
-                          child: const Text('Retry'),
-                        ),
-                      ],
-                    ),
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('User profile not found. Please log in again.'),
+                    duration: Duration(seconds: 3),
                   ),
-                ),
-              );
+                );
+                _auth.signOut();
+              });
+              return const LoginScreen();
             }
 
             // Get user type and navigate to appropriate screen

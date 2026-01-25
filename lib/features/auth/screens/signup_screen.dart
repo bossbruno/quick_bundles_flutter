@@ -40,22 +40,38 @@ class _SignupScreenState extends State<SignupScreen> {
     try {
       final pickedFile = await _imagePicker.pickImage(
         source: ImageSource.gallery,
-        imageQuality: 80,
+        maxWidth: 1024,
+        maxHeight: 1024,
+        imageQuality: 70,
       );
       
       if (pickedFile != null) {
+        final file = File(pickedFile.path);
+        // Size check (2MB)
+        final size = await file.length();
+        if (size > 2 * 1024 * 1024) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Image is too large. Please select a smaller one.')),
+            );
+          }
+          return;
+        }
+
         setState(() {
           if (isFront) {
-            _ghanaCardFrontImage = File(pickedFile.path);
+            _ghanaCardFrontImage = file;
           } else {
-            _ghanaCardBackImage = File(pickedFile.path);
+            _ghanaCardBackImage = file;
           }
         });
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error picking image: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error picking image: $e')),
+        );
+      }
     }
   }
 
@@ -200,11 +216,13 @@ class _SignupScreenState extends State<SignupScreen> {
   Future<void> _signUp() async {
     if (!_formKey.currentState!.validate()) return;
 
-    // Validate that at least one Ghana Card photo is uploaded
-    if (_ghanaCardFrontImage == null && _ghanaCardBackImage == null) {
+    // Validate that at least one Ghana Card photo is uploaded for Vendors
+    if (_selectedUserType == UserType.vendor && 
+        _ghanaCardFrontImage == null && 
+        _ghanaCardBackImage == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please upload at least one Ghana Card photo (front or back)'),
+          content: Text('Please upload at least one Ghana Card photo (front or back) for vendor verification'),
           backgroundColor: Colors.red,
         ),
       );
@@ -234,6 +252,7 @@ class _SignupScreenState extends State<SignupScreen> {
         password: password,
         name: _nameController.text.trim(),
         phoneNumber: _phoneController.text.trim(),
+        ghanaCardUrl: _ghanaCardFrontImage != null || _ghanaCardBackImage != null ? 'pending_upload' : null, // Temp flag
       );
 
       // Upload Ghana Card images if present
@@ -271,9 +290,11 @@ class _SignupScreenState extends State<SignupScreen> {
       // Add Ghana Card image URLs if uploaded
       if (ghanaCardFrontImageUrl != null) {
         userData['ghanaCardFrontImageUrl'] = ghanaCardFrontImageUrl;
+        userData['ghanaCardUrl'] = ghanaCardFrontImageUrl; // Set main field
       }
       if (ghanaCardBackImageUrl != null) {
         userData['ghanaCardBackImageUrl'] = ghanaCardBackImageUrl;
+        if (userData['ghanaCardUrl'] == null) userData['ghanaCardUrl'] = ghanaCardBackImageUrl;
       }
 
       // Add vendor specific data if user is a vendor

@@ -11,6 +11,8 @@ import 'vendor_detail_screen.dart';
 import '../../auth/screens/buyer_profile_screen.dart';
 import 'package:flutter/services.dart';
 import '../../../core/app_theme.dart';
+import '../../../core/theme_provider.dart';
+import 'package:provider/provider.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -373,6 +375,18 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
               tooltip: 'Cancel selection',
               onPressed: () => _toggleChatSelectionMode(false),
             ),
+          Consumer<ThemeProvider>(
+            builder: (context, themeProvider, child) {
+              return IconButton(
+                icon: Icon(
+                  themeProvider.themeMode == ThemeMode.dark 
+                    ? Icons.dark_mode : Icons.light_mode,
+                ),
+                onPressed: () => themeProvider.toggleTheme(),
+                tooltip: 'Toggle Theme',
+              );
+            },
+          ),
           if (currentUser == null)
             IconButton(
               icon: const Icon(Icons.login),
@@ -1384,8 +1398,35 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
 
                   List<String> filteredIds = vendorIds.where((id) {
                     if (_searchQuery.isEmpty) return true;
+                    final query = _searchQuery.toLowerCase();
+                    
+                    // 1. Check Vendor Name
                     final name = (vendorIdToName[id] ?? '').toLowerCase();
-                    return name.contains(_searchQuery);
+                    if (name.contains(query)) return true;
+
+                    // 2. Check Listings details
+                    final listings = vendorListings[id];
+                    if (listings == null) return false;
+                    
+                    return listings.any((l) {
+                      final provider = l.provider.toString().split('.').last.toLowerCase();
+                      final dataGB = '${l.dataAmount}gb';
+                      final data = '${l.dataAmount}';
+                      // Handle integer data amounts in search (e.g. "5" matches 5.0)
+                      final dataInt = l.dataAmount == l.dataAmount.roundToDouble() 
+                          ? '${l.dataAmount.toInt()}' 
+                          : '';
+                          
+                      final price = '${l.price}';
+                      final title = l.title.toLowerCase();
+                      
+                      return provider.contains(query) ||
+                             dataGB.contains(query) ||
+                             data.contains(query) ||
+                             (dataInt.isNotEmpty && dataInt.contains(query)) ||
+                             price.contains(query) ||
+                             title.contains(query);
+                    });
                   }).toList();
 
                   // Pagination window

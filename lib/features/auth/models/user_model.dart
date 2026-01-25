@@ -17,6 +17,7 @@ class UserModel {
   final double? successRate;
   final String? phone;
   final String? photoUrl;
+  final String? ghanaCardUrl;
   final String? businessHours;
   final List<String>? serviceAreas;
   final Map<String, bool>? paymentMethods;
@@ -39,6 +40,7 @@ class UserModel {
     this.successRate,
     this.phone,
     this.photoUrl,
+    this.ghanaCardUrl,
     this.businessHours,
     this.serviceAreas,
     this.paymentMethods,
@@ -64,6 +66,7 @@ class UserModel {
       successRate: data['successRate']?.toDouble(),
       phone: data['phone'] ?? data['phoneNumber'],
       photoUrl: data['photoUrl'],
+      ghanaCardUrl: data['ghanaCardUrl'],
       businessHours: data['businessHours'],
       serviceAreas: data['serviceAreas'] != null ? List<String>.from(data['serviceAreas']) : null,
       paymentMethods: data['paymentMethods'] != null ? Map<String, bool>.from(data['paymentMethods']) : null,
@@ -87,6 +90,7 @@ class UserModel {
       'location': location,
       'about': about,
       'successRate': successRate,
+      'ghanaCardUrl': ghanaCardUrl,
     }..removeWhere((key, value) => value == null);
   }
 }

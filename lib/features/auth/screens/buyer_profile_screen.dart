@@ -3,6 +3,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../settings/screens/notification_settings_screen.dart';
 import '../../admin/screens/admin_dashboard_screen.dart';
+import '../../../core/theme_provider.dart';
+import 'package:provider/provider.dart';
 
 class BuyerProfileScreen extends StatefulWidget {
   const BuyerProfileScreen({Key? key}) : super(key: key);
@@ -303,6 +305,24 @@ class _BuyerProfileScreenState extends State<BuyerProfileScreen> {
                             : const Text('Save Changes'),
                       ),
                     const SizedBox(height: 20),
+                    Consumer<ThemeProvider>(
+                      builder: (context, themeProvider, child) {
+                        return ListTile(
+                          leading: Icon(
+                            themeProvider.themeMode == ThemeMode.dark 
+                              ? Icons.dark_mode : Icons.light_mode,
+                            color: Theme.of(context).primaryColor,
+                          ),
+                          title: const Text('Dark Mode'),
+                          trailing: Switch(
+                            value: themeProvider.themeMode == ThemeMode.dark,
+                            onChanged: (_) => themeProvider.toggleTheme(),
+                            activeColor: Theme.of(context).primaryColor,
+                          ),
+                        );
+                      }
+                    ),
+                    const Divider(),
                     ListTile(
                       leading: const Icon(Icons.security_outlined),
                       title: const Text('Change Password'),

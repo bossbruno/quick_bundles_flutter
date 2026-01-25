@@ -273,15 +273,65 @@ class _VendorChatDetailScreenState extends State<VendorChatDetailScreen> {
 
   Future<void> _pickImage() async {
     try {
-      final picked = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
+      final picked = await _picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1024,
+        maxHeight: 1024,
+        imageQuality: 70,
+      );
       if (picked != null) {
-        setState(() => _imageFile = File(picked.path));
+        final file = File(picked.path);
+        // Additional size check (2MB)
+        final size = await file.length();
+        if (size > 2 * 1024 * 1024) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Image is too large. Please select a smaller one.')),
+            );
+          }
+          return;
+        }
+        setState(() => _imageFile = file);
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to pick image: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to pick image: $e')),
+        );
+      }
     }
+  }
+
+  void _showFullScreenImage(String imageUrl) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => Scaffold(
+          backgroundColor: Colors.black,
+          appBar: AppBar(
+            backgroundColor: Colors.black,
+            foregroundColor: Colors.white,
+            elevation: 0,
+          ),
+          body: Center(
+            child: InteractiveViewer(
+              panEnabled: true,
+              minScale: 0.5,
+              maxScale: 4,
+              child: Image.network(
+                imageUrl,
+                fit: BoxFit.contain,
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  return const Center(child: CircularProgressIndicator(color: Colors.white));
+                },
+                errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, color: Colors.white, size: 50),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
 
@@ -496,6 +546,7 @@ class _VendorChatDetailScreenState extends State<VendorChatDetailScreen> {
                       text: (msg['text'] ?? '').toString(),
                       imageUrl: msg['imageUrl']?.toString(),
                       timeString: timeString,
+                      onImageTap: msg['imageUrl'] != null ? () => _showFullScreenImage(msg['imageUrl']) : null,
                     );
                   },
                 );
@@ -503,6 +554,39 @@ class _VendorChatDetailScreenState extends State<VendorChatDetailScreen> {
             ),
           ),
           
+          if (_imageFile != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Stack(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.file(
+                      _imageFile!,
+                      height: 150,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                  Positioned(
+                    top: 8,
+                    right: 8,
+                    child: GestureDetector(
+                      onTap: () => setState(() => _imageFile = null),
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: const BoxDecoration(
+                          color: Colors.black54,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.close, color: Colors.white, size: 20),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
           // Message input
           Container(
             padding: EdgeInsets.only(
@@ -648,12 +732,14 @@ class _VendorChatMessageBubble extends StatelessWidget {
     required this.text,
     required this.imageUrl,
     required this.timeString,
+    this.onImageTap,
   });
 
   final bool isMe;
   final String text;
   final String? imageUrl;
   final String timeString;
+  final VoidCallback? onImageTap;
 
   @override
   Widget build(BuildContext context) {
@@ -692,13 +778,19 @@ class _VendorChatMessageBubble extends StatelessWidget {
             if (imageUrl != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Image.network(
-                    imageUrl!,
-                    width: 200,
-                    fit: BoxFit.cover,
-                    errorBuilder: (c, e, s) => const Icon(Icons.broken_image, color: Colors.white70),
+                child: GestureDetector(
+                  onTap: onImageTap,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Hero(
+                      tag: imageUrl!,
+                      child: Image.network(
+                        imageUrl!,
+                        width: 200,
+                        fit: BoxFit.cover,
+                        errorBuilder: (c, e, s) => const Icon(Icons.broken_image, color: Colors.white70),
+                      ),
+                    ),
                   ),
                 ),
               ),

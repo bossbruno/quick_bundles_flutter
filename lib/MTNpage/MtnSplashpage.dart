@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:quick_bundles_flutter/main.dart';
+import 'package:quick_bundles_flutter/screens/auth_wrapper.dart';
 
 class MTNPage extends StatefulWidget {
   const MTNPage({super.key});
@@ -19,7 +20,7 @@ class _MTNPageState extends State<MTNPage> {
         if (mounted) {
           Navigator.of(context).pushReplacement(
             MaterialPageRoute(
-              builder: (context) => const HomePage(),
+              builder: (context) => const MainNavigationScreen(),
             ),
           );
         }

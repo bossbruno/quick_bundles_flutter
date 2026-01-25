@@ -15,6 +15,7 @@ class DatabaseService {
     String? name, 
     String? phoneNumber,
     bool? emailVerified,
+    String? ghanaCardUrl,
   }) async {
     final userData = {
       'email': user.email,
@@ -29,6 +30,7 @@ class DatabaseService {
       'lastLogin': FieldValue.serverTimestamp(),
       'role': 'user', // Default role
       'userType': 'user', // Default user type
+      'ghanaCardUrl': ghanaCardUrl,
     };
 
     // Use set with merge to avoid overwriting existing data
