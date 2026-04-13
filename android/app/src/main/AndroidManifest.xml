@@ -16,7 +16,8 @@
         android:allowBackup="true"
         android:fullBackupContent="@xml/backup_rules"
         android:requestLegacyExternalStorage="true"
-        android:usesCleartextTraffic="false">
+        android:usesCleartextTraffic="false"
+        android:extractNativeLibs="false">
         
         <!-- Firebase configuration -->
         <meta-data

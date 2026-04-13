@@ -21,7 +21,7 @@ import 'services/onesignal_service.dart';
 import 'services/fcm_v1_service.dart';
 import 'services/notification_service.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
+
 import 'AIRTELTIGOpage/at_tab.dart';
 import 'Ads_directory/ad_mob_service.dart';
 import 'services/auth_service.dart';
@@ -30,6 +30,7 @@ import 'firebase_options.dart';
 import 'features/auth/screens/signup_screen.dart';
 import 'core/theme_provider.dart';
 import 'core/app_theme.dart';
+import 'core/services/connectivity_service.dart';
 import 'package:provider/provider.dart';
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
@@ -85,10 +86,13 @@ Future<void> main() async {
     // Initialize FirebaseInit (Custom wrapper if used)
     await FirebaseInit.initialize();
     
-    // Run the app with ThemeProvider
+    // Run the app with ThemeProvider and ConnectivityService
     runApp(
-      ChangeNotifierProvider(
-        create: (_) => ThemeProvider(),
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => ThemeProvider()),
+          ChangeNotifierProvider(create: (_) => ConnectivityService()),
+        ],
         child: const MyApp(),
       ),
     );
@@ -133,9 +137,9 @@ class MyApp extends StatelessWidget {
           theme: AppTheme.lightTheme,
           darkTheme: AppTheme.darkTheme,
           themeMode: themeProvider.themeMode,
-          home: const VodafonePage(),
+          home: const MainNavigationScreen(),
           routes: {
-            '/login': (context) => const LoginScreen(),
+            '/login': (context) => const MainNavigationScreen(),
             '/signup': (context) => const SignupScreen(),
           },
         );
@@ -162,25 +166,31 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: _screens[_selectedIndex],
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        onTap: (index) {
-          setState(() {
-            _selectedIndex = index;
-          });
+      bottomNavigationBar: Consumer<ThemeProvider>(
+        builder: (context, themeProvider, child) {
+          final theme = Theme.of(context);
+          return BottomNavigationBar(
+            currentIndex: _selectedIndex,
+            onTap: (index) {
+              setState(() {
+                _selectedIndex = index;
+              });
+            },
+            selectedItemColor: AppTheme.primary,
+            unselectedItemColor: theme.colorScheme.onSurface.withOpacity(0.6),
+            backgroundColor: theme.colorScheme.surface,
+            items: const [
+              BottomNavigationBarItem(
+                icon: Icon(Icons.home),
+                label: 'Home',
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.store),
+                label: 'Marketplace',
+              ),
+            ],
+          );
         },
-        selectedItemColor: AppTheme.primary,
-        unselectedItemColor: Colors.grey,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home),
-            label: 'Home',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.store),
-            label: 'Marketplace',
-          ),
-        ],
       ),
     );
   }

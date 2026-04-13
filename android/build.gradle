@@ -1,5 +1,5 @@
 buildscript {
-    ext.kotlin_version = '1.9.22'  // Define Kotlin version here
+    ext.kotlin_version = '2.0.20'  // Updated to match settings.gradle
     ext.java_version = JavaVersion.VERSION_17
     
     repositories {
@@ -8,10 +8,10 @@ buildscript {
     }
 
     dependencies {
-        classpath 'com.android.tools.build:gradle:8.2.2'  // Downgraded for better stability
+        classpath 'com.android.tools.build:gradle:8.5.2'  // 8.5.1+ required for Play 16 KB bundle zip alignment
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
-        classpath 'com.google.gms:google-services:4.3.15'
-        classpath 'com.google.firebase:firebase-crashlytics-gradle:2.9.9'
+        classpath 'com.google.gms:google-services:4.4.2'
+        classpath 'com.google.firebase:firebase-crashlytics-gradle:3.0.2'
     }
 }
 

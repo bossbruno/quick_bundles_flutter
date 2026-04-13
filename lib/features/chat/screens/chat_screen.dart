@@ -11,7 +11,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter/gestures.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../../core/app_theme.dart';
+import '../../../../core/services/connectivity_service.dart';
+import '../../../../widgets/offline_banner.dart';
 import '../../reviews/widgets/add_review_dialog.dart';
+import 'package:provider/provider.dart';
 
 class ChatScreen extends StatefulWidget {
   final String? chatId;
@@ -968,6 +971,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 
                 return Column(
                   children: [
+                    const OfflineBanner(),
                     // Order Info Card
                     Container(
                       width: double.infinity,
@@ -1055,26 +1059,33 @@ class _ChatScreenState extends State<ChatScreen> {
 
                     // Chat messages
                     Expanded(
-                      child: StreamBuilder<QuerySnapshot>(
-                        stream: FirebaseFirestore.instance
-                            .collection('chats')
-                            .doc(chatId)
-                            .collection('messages')
-                            .orderBy('timestamp')
-                            .snapshots(),
-                        builder: (context, snapshot) {
-                          if (snapshot.hasData) {
-                             _markMessagesAsRead(); // Keep existing logic
-                          }
-                          if (!snapshot.hasData) {
-                            return const Center(child: CircularProgressIndicator());
-                          }
-                          final messages = snapshot.data!.docs;
-                          WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
-                          
-                          return ListView.builder(
-                            controller: _scrollController,
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+                      child: RefreshIndicator(
+                        onRefresh: () async {
+                          // Firestore StreamBuilder auto-refreshes
+                          await Future.delayed(const Duration(milliseconds: 500));
+                        },
+                        color: AppTheme.primary,
+                        child: StreamBuilder<QuerySnapshot>(
+                          stream: FirebaseFirestore.instance
+                              .collection('chats')
+                              .doc(chatId)
+                              .collection('messages')
+                              .orderBy('timestamp')
+                              .snapshots(),
+                          builder: (context, snapshot) {
+                            if (snapshot.hasData) {
+                               _markMessagesAsRead(); // Keep existing logic
+                            }
+                            if (!snapshot.hasData) {
+                              return const Center(child: CircularProgressIndicator());
+                            }
+                            final messages = snapshot.data!.docs;
+                            WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+                            
+                            return ListView.builder(
+                              physics: const AlwaysScrollableScrollPhysics(),
+                              controller: _scrollController,
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
                             itemCount: messages.length,
                             itemBuilder: (context, index) {
                               final msg = messages[index].data() as Map<String, dynamic>;
@@ -1150,6 +1161,7 @@ class _ChatScreenState extends State<ChatScreen> {
                             },
                           );
                         },
+                        ),
                       ),
                     ),
 
@@ -1305,52 +1317,58 @@ class _ChatScreenState extends State<ChatScreen> {
                                 ),
 
                             // Input Field
-                            Row(
-                              children: [
+                            Consumer<ConnectivityService>(
+                              builder: (context, connectivity, child) {
+                                final isOffline = !connectivity.isOnline;
+                                return Row(
+                                  children: [
+                                    Container(
+                                      decoration: BoxDecoration(
+                                        color: Colors.grey.shade100,
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: IconButton(
+                                        icon: Icon(Icons.image_outlined, color: isOffline ? Colors.grey : AppTheme.primary),
+                                        onPressed: isOffline ? null : _pickImage,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                                        decoration: BoxDecoration(
+                                          color: Colors.grey.shade100,
+                                          borderRadius: BorderRadius.circular(24),
+                                          border: Border.all(color: Colors.transparent),
+                                        ),
+                                        child: TextField(
+                                          controller: _messageController,
+                                          enabled: !isOffline,
+                                          style: GoogleFonts.poppins(),
+                                          decoration: InputDecoration(
+                                            hintText: isOffline ? 'Offline - Messages will send when connected' : 'Type a message...',
+                                            hintStyle: GoogleFonts.poppins(color: Colors.grey.shade400),
+                                            border: InputBorder.none,
+                                            contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                                          ),
+                                      onSubmitted: isOffline ? null : (message) => _sendMessage(message),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
                                 Container(
                                   decoration: BoxDecoration(
-                                    color: Colors.grey.shade100,
+                                    color: isOffline ? Colors.grey : AppTheme.primary,
                                     shape: BoxShape.circle,
                                   ),
                                   child: IconButton(
-                                    icon: Icon(Icons.image_outlined, color: AppTheme.primary),
-                                    onPressed: _pickImage,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                                    decoration: BoxDecoration(
-                                      color: Colors.grey.shade100,
-                                      borderRadius: BorderRadius.circular(24),
-                                      border: Border.all(color: Colors.transparent),
-                                    ),
-                                    child: TextField(
-                                      controller: _messageController,
-                                      style: GoogleFonts.poppins(),
-                                      decoration: InputDecoration(
-                                        hintText: 'Type a message...',
-                                        hintStyle: GoogleFonts.poppins(color: Colors.grey.shade400),
-                                        border: InputBorder.none,
-                                        contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                                      ),
-                                      onSubmitted: (message) => _sendMessage(message),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Container(
-                                  decoration: const BoxDecoration(
-                                    color: AppTheme.primary,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: IconButton(
-                                    icon: const Icon(Icons.send_rounded, color: Colors.white, size: 20),
-                                    onPressed: _isSending ? null : () => _sendMessage(_messageController.text),
+                                    icon: Icon(Icons.send_rounded, color: Colors.white, size: 20),
+                                    onPressed: (_isSending || isOffline) ? null : () => _sendMessage(_messageController.text),
                                   ),
                                 ),
                               ],
+                            );
+                              },
                             ),
                           ],
                         ),

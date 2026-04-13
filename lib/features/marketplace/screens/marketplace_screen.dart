@@ -12,6 +12,8 @@ import '../../auth/screens/buyer_profile_screen.dart';
 import 'package:flutter/services.dart';
 import '../../../core/app_theme.dart';
 import '../../../core/theme_provider.dart';
+import '../../../core/services/connectivity_service.dart';
+import '../../../widgets/offline_banner.dart';
 import 'package:provider/provider.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
@@ -596,12 +598,19 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
           ),
         ), // PreferredSize
       ), // AppBar
-      body: TabBarView(
-        controller: _tabController,
+      body: Column(
         children: [
-          _buildMarketplaceTab(currentUser),
-          _buildBuyerChatsTab(currentUser),
-          _buildBuyerTransactionsTab(currentUser),
+          const OfflineBanner(),
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                _buildMarketplaceTab(currentUser),
+                _buildBuyerChatsTab(currentUser),
+                _buildBuyerTransactionsTab(currentUser),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -609,487 +618,551 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
 
   Widget _buildBuyerTransactionsTab(User? currentUser) {
     if (currentUser == null) return const Center(child: Text('Not logged in'));
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('transactions')
-          .where('userId', isEqualTo: currentUser.uid)
-          .where('status', isEqualTo: 'completed')
-          .orderBy('timestamp', descending: true)
-          .snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Center(child: Text('Error: ${snapshot.error}'));
-        }
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-          return const Center(child: Text('No completed transactions yet'));
-        }
-        final transactions = snapshot.data!.docs;
-        return ListView.builder(
-          key: const PageStorageKey<String>('buyer_transactions_list'),
-          itemCount: transactions.length,
-          itemBuilder: (context, index) {
-            final tx = transactions[index].data() as Map<String, dynamic>;
-            final completedTime = tx['timestamp'] != null
-                ? (tx['timestamp'] as Timestamp).toDate()
-                : null;
-            final formattedDate = completedTime != null
-                ? '${completedTime.day.toString().padLeft(2, '0')} '
+    return RefreshIndicator(
+      onRefresh: () async {
+        // Firestore StreamBuilder auto-refreshes
+        await Future.delayed(const Duration(milliseconds: 500));
+      },
+      color: AppTheme.primary,
+      child: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('transactions')
+            .where('userId', isEqualTo: currentUser.uid)
+            .where('status', isEqualTo: 'completed')
+            .orderBy('timestamp', descending: true)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return Center(child: Text('Error: ${snapshot.error}'));
+          }
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+            return ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: const [
+                SizedBox(height: 200),
+                Center(child: Text('No completed transactions yet')),
+              ],
+            );
+          }
+          final transactions = snapshot.data!.docs;
+          return ListView.builder(
+            physics: const AlwaysScrollableScrollPhysics(),
+            key: const PageStorageKey<String>('buyer_transactions_list'),
+            itemCount: transactions.length,
+            itemBuilder: (context, index) {
+              final tx = transactions[index].data() as Map<String, dynamic>;
+              final completedTime = tx['timestamp'] != null
+                  ? (tx['timestamp'] as Timestamp).toDate()
+                  : null;
+              final formattedDate = completedTime != null
+                  ? '${completedTime.day.toString().padLeft(2, '0')} '
                   '${_monthName(completedTime.month)} ${completedTime.year}, '
                   '${_formatTime(completedTime)}'
-                : '';
-            final vendorId = tx['vendorId'] ?? '';
-            if (vendorId.isEmpty) {
-              // Skip or show placeholder if vendorId is missing
-              return const SizedBox.shrink();
-            }
-            return FutureBuilder<DocumentSnapshot>(
-              future: FirebaseFirestore.instance.collection('users').doc(
-                  vendorId).get(),
-              builder: (context, userSnap) {
-                bool isVerified = false;
-                String vendorName = 'Vendor';
-                if (userSnap.hasData && userSnap.data!.exists) {
-                  final userData = userSnap.data!.data() as Map<String,
-                      dynamic>?;
-                  isVerified = userData?['isVerified'] ??
-                      userData?['verificationStatus'] ?? false;
-                  vendorName = userData?['businessName'] ?? userData?['name'] ??
-                      'Vendor';
-                }
-                return Card(
-                  margin: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 8),
-                  elevation: 3,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            const Icon(Icons.storefront, size: 20,
-                                color: Colors.orange),
-                            const SizedBox(width: 6),
-                            Text(
-                              vendorName,
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.bold, fontSize: 16),
-                            ),
-                            if (isVerified) ...[
-                              const SizedBox(width: 4),
-                              Icon(
-                                  Icons.verified, color: Colors.blue, size: 18),
+                  : '';
+              final vendorId = tx['vendorId'] ?? '';
+              if (vendorId.isEmpty) {
+                // Skip or show placeholder if vendorId is missing
+                return const SizedBox.shrink();
+              }
+              return FutureBuilder<DocumentSnapshot>(
+                future: FirebaseFirestore.instance.collection('users').doc(
+                    vendorId).get(),
+                builder: (context, userSnap) {
+                  bool isVerified = false;
+                  String vendorName = 'Vendor';
+                  if (userSnap.hasData && userSnap.data!.exists) {
+                    final userData = userSnap.data!.data() as Map<String,
+                        dynamic>?;
+                    isVerified = userData?['isVerified'] ??
+                        userData?['verificationStatus'] ?? false;
+                    vendorName =
+                        userData?['businessName'] ?? userData?['name'] ??
+                            'Vendor';
+                  }
+                  return Card(
+                    margin: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 8),
+                    elevation: 3,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.storefront, size: 20,
+                                  color: Colors.orange),
+                              const SizedBox(width: 6),
+                              Text(
+                                vendorName,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold, fontSize: 16),
+                              ),
+                              if (isVerified) ...[
+                                const SizedBox(width: 4),
+                                Icon(
+                                    Icons.verified, color: Colors.blue,
+                                    size: 18),
+                              ],
                             ],
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            const Icon(Icons.monetization_on, size: 18,
-                                color: Colors.teal),
-                            const SizedBox(width: 4),
-                            Text(
-                              'GHS ${tx['amount']?.toStringAsFixed(2) ?? ''}',
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.bold, fontSize: 18),
-                            ),
-                            const SizedBox(width: 16),
-                            if (tx['dataAmount'] != null && tx['dataAmount']
-                                .toString()
-                                .isNotEmpty) ...[
-                              const Icon(Icons.swap_vert, size: 18,
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              const Icon(Icons.monetization_on, size: 18,
+                                  color: Colors.teal),
+                              const SizedBox(width: 4),
+                              Text(
+                                'GHS ${tx['amount']?.toStringAsFixed(2) ?? ''}',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold, fontSize: 18),
+                              ),
+                              const SizedBox(width: 16),
+                              if (tx['dataAmount'] != null && tx['dataAmount']
+                                  .toString()
+                                  .isNotEmpty) ...[
+                                const Icon(Icons.swap_vert, size: 18,
+                                    color: Colors.deepPurple),
+                                const SizedBox(width: 4),
+                                Text('${tx['dataAmount']} GB',
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 18)),
+                                const SizedBox(width: 16),
+                              ],
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              const Icon(Icons.phone_android, size: 18,
+                                  color: Colors.blueGrey),
+                              const SizedBox(width: 4),
+                              Text('Recipient: ${tx['recipientNumber'] ?? ''}',
+                                  style: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              const Icon(Icons.calendar_today, size: 16,
                                   color: Colors.deepPurple),
                               const SizedBox(width: 4),
-                              Text('${tx['dataAmount']} GB',
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 18)),
-                              const SizedBox(width: 16),
+                              Text(
+                                formattedDate,
+                                style: const TextStyle(fontSize: 13,
+                                    color: Colors.black87,
+                                    fontWeight: FontWeight.w500),
+                              ),
                             ],
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            const Icon(Icons.phone_android, size: 18,
-                                color: Colors.blueGrey),
-                            const SizedBox(width: 4),
-                            Text('Recipient: ${tx['recipientNumber'] ?? ''}',
-                                style: const TextStyle(
-                                    fontSize: 14, fontWeight: FontWeight.bold)),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            const Icon(Icons.calendar_today, size: 16,
-                                color: Colors.deepPurple),
-                            const SizedBox(width: 4),
-                            Text(
-                              formattedDate,
-                              style: const TextStyle(fontSize: 13,
-                                  color: Colors.black87,
-                                  fontWeight: FontWeight.w500),
-                            ),
-                          ],
-                        ),
-                      ],
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                );
-              },
-            );
-          },
-        );
-      },
+                  );
+                },
+              );
+            },
+          );
+        },
+        ),
     );
   }
 
   Widget _buildBuyerChatsTab(User? currentUser) {
     if (currentUser == null) return const Center(child: Text('Not logged in'));
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('chats')
-          .where('buyerId', isEqualTo: currentUser.uid)
-          .where('status', isNotEqualTo: 'completed')
-          .orderBy('updatedAt', descending: true)
-          .snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Center(child: Text('Error: ${snapshot.error}'));
-        }
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-          return const Center(child: Text('No chats yet'));
-        }
+    return RefreshIndicator(
+      onRefresh: () async {
+        // Firestore StreamBuilder auto-refreshes
+        await Future.delayed(const Duration(milliseconds: 500));
+      },
+      color: AppTheme.primary,
+      child: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('chats')
+            .where('buyerId', isEqualTo: currentUser.uid)
+            .where('status', isNotEqualTo: 'completed')
+            .orderBy('updatedAt', descending: true)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return Center(child: Text('Error: ${snapshot.error}'));
+          }
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+            return ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: const [
+                SizedBox(height: 200),
+                Center(child: Text('No chats yet')),
+              ],
+            );
+          }
 
-        final chats = snapshot.data!.docs;
-        return ListView.builder(
-          key: const PageStorageKey<String>('buyer_chats_list'),
-          padding: const EdgeInsets.all(16.0),
-          itemCount: chats.length,
-          itemBuilder: (context, index) {
-            final chatDoc = chats[index];
-            final chatId = chatDoc.id;
-            final chatData = chatDoc.data() as Map<String, dynamic>;
-            final vendorId = chatData['vendorId'] ?? '';
-            final bundleId = chatData['bundleId'] ?? '';
-            final lastMessage = chatData['lastMessage'] ?? '';
-            final lastMessageTime = chatData['lastMessageTime'] != null
-                ? (chatData['lastMessageTime'] as Timestamp).toDate()
-                : DateTime.now();
-            final unreadCount = chatData['unreadCount_${currentUser.uid}'] ?? 0;
-            final selected = _selectedChatIds.contains(chatId);
-            final status = chatData['status'] ?? 'pending';
+          final chats = snapshot.data!.docs;
+          return ListView.builder(
+              physics: const AlwaysScrollableScrollPhysics(),
+              key: const PageStorageKey<String>('buyer_chats_list'),
+              padding: const EdgeInsets.all(16.0),
+              itemCount: chats.length,
+              itemBuilder: (context, index) {
+                final chatDoc = chats[index];
+                final chatId = chatDoc.id;
+                final chatData = chatDoc.data() as Map<String, dynamic>;
+                final vendorId = chatData['vendorId'] ?? '';
+                final bundleId = chatData['bundleId'] ?? '';
+                final lastMessage = chatData['lastMessage'] ?? '';
+                final lastMessageTime = chatData['lastMessageTime'] != null
+                    ? (chatData['lastMessageTime'] as Timestamp).toDate()
+                    : DateTime.now();
+                final unreadCount = chatData['unreadCount_${currentUser
+                    .uid}'] ?? 0;
+                final selected = _selectedChatIds.contains(chatId);
+                final status = chatData['status'] ?? 'pending';
 
-    return KeyedSubtree(
-      key: ValueKey(chatId),
-      child: FutureBuilder<DocumentSnapshot>(
-              future: FirebaseFirestore.instance.collection('users').doc(
-                  vendorId).get(),
-              builder: (context, userSnap) {
-                String vendorName = 'Vendor';
-        bool isVerified = false;
+                return KeyedSubtree(
+                  key: ValueKey(chatId),
+                  child: FutureBuilder<DocumentSnapshot>(
+                      future: FirebaseFirestore.instance
+                          .collection('users')
+                          .doc(
+                          vendorId)
+                          .get(),
+                      builder: (context, userSnap) {
+                        String vendorName = 'Vendor';
+                        bool isVerified = false;
 
-                if (userSnap.hasData && userSnap.data!.exists) {
-                  try {
-                    final userData = userSnap.data!.data() as Map<String, dynamic>?;
-                    if (userData != null) {
-                      // Try multiple possible field names for vendor name
-                      vendorName = userData['businessName'] ?? 
-                                 userData['business_name'] ??
-                                 userData['displayName'] ??
-                                 userData['display_name'] ??
-                                 userData['name'] ?? 
-                                 'Vendor (${vendorId.substring(0, 4)})'; // Show first 4 chars of ID if no name found
-                      
-                      isVerified = userData['verificationStatus'] ?? 
-                                 userData['isVerified'] ?? 
-                                 userData['verified'] ?? 
-                                 false;
-                      
-                      // Log the data for debugging
-                      debugPrint('Vendor data for $vendorId: ${userData.toString()}');
-                    }
-                  } catch (e) {
-                    debugPrint('Error processing vendor data: $e');
-                    vendorName = 'Vendor (Error)';
-                  }
-                } else {
-                  debugPrint('Vendor document $vendorId does not exist or could not be loaded');
-                }
-
-                return FutureBuilder<DocumentSnapshot>(
-                  future: FirebaseFirestore.instance.collection('listings').doc(
-                      bundleId).get(),
-                  builder: (context, bundleSnap) {
-                    String provider = '';
-                    double dataAmount = 0.0;
-                    Color networkColor = Colors.grey;
-                    String networkLabel = '';
-
-                    final Color lastMessagePreviewColor = Colors.grey[600] ?? Colors.grey;
-                    final Color timeTextColor = Colors.grey[500] ?? Colors.grey;
-
-                    if (bundleSnap.hasData && bundleSnap.data!.exists) {
-                      final bundleData = bundleSnap.data!.data() as Map<
-                          String,
-                          dynamic>?;
-                      if (bundleData != null) {
-                        provider = bundleData['provider']?.toString() ?? '';
-                        dataAmount = (bundleData['dataAmount'] ?? 0.0)
-                            .toDouble();
-                        networkColor = _getNetworkColor(provider);
-                        networkLabel = provider
-                            .split('.')
-                            .last
-                            .toUpperCase();
-                      }
-                    }
-
-                    return Card(
-                      margin: const EdgeInsets.symmetric(vertical: 4),
-                      elevation: 2,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: InkWell(
-                        onTap: () async {
-                          // Handle chat tap
-                          if (_chatSelectionMode) {
-                            _toggleChatSelection(chatId);
-                            return;
-                          }
-                          
-                          if (_navigatingToChat) return;
-                          _navigatingToChat = true;
-                          
-                          // Get the recipient number from the chat data or use a default
-                          String recipientNumber = '';
+                        if (userSnap.hasData && userSnap.data!.exists) {
                           try {
-                            // Try to get recipient number from chat data if it exists
-                            if (chatData['recipientNumber'] != null) {
-                              recipientNumber = chatData['recipientNumber'];
-                            } else {
-                              // Try to get from transaction if available
-                              final txSnapshot = await FirebaseFirestore.instance
-                                  .collection('transactions')
-                                  .where('chatId', isEqualTo: chatId)
-                                  .limit(1)
-                                  .get();
-                              
-                              if (txSnapshot.docs.isNotEmpty) {
-                                recipientNumber = txSnapshot.docs.first['recipientNumber'] ?? '';
-                              }
+                            final userData = userSnap.data!.data() as Map<
+                                String,
+                                dynamic>?;
+                            if (userData != null) {
+                              // Try multiple possible field names for vendor name
+                              vendorName = userData['businessName'] ??
+                                  userData['business_name'] ??
+                                  userData['displayName'] ??
+                                  userData['display_name'] ??
+                                  userData['name'] ??
+                                  'Vendor (${vendorId.substring(0,
+                                      4)})'; // Show first 4 chars of ID if no name found
+
+                              isVerified = userData['verificationStatus'] ??
+                                  userData['isVerified'] ??
+                                  userData['verified'] ??
+                                  false;
+
+                              // Log the data for debugging
+                              debugPrint(
+                                  'Vendor data for $vendorId: ${userData
+                                      .toString()}');
                             }
                           } catch (e) {
-                            debugPrint('Error getting recipient number: $e');
+                            debugPrint('Error processing vendor data: $e');
+                            vendorName = 'Vendor (Error)';
                           }
-                          
-                          if (mounted) {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => ChatScreen(
-                                  chatId: chatId,
-                                  vendorId: vendorId,
-                                  bundleId: bundleId,
-                                  businessName: vendorName,
-                                  recipientNumber: recipientNumber,
-                                ),
+                        } else {
+                          debugPrint(
+                              'Vendor document $vendorId does not exist or could not be loaded');
+                        }
+
+                        return FutureBuilder<DocumentSnapshot>(
+                          future: FirebaseFirestore.instance.collection(
+                              'listings').doc(
+                              bundleId).get(),
+                          builder: (context, bundleSnap) {
+                            String provider = '';
+                            double dataAmount = 0.0;
+                            Color networkColor = Colors.grey;
+                            String networkLabel = '';
+
+                            final Color lastMessagePreviewColor = Colors
+                                .grey[600] ??
+                                Colors.grey;
+                            final Color timeTextColor = Colors.grey[500] ??
+                                Colors.grey;
+
+                            if (bundleSnap.hasData && bundleSnap.data!.exists) {
+                              final bundleData = bundleSnap.data!.data() as Map<
+                                  String,
+                                  dynamic>?;
+                              if (bundleData != null) {
+                                provider =
+                                    bundleData['provider']?.toString() ?? '';
+                                dataAmount = (bundleData['dataAmount'] ?? 0.0)
+                                    .toDouble();
+                                networkColor = _getNetworkColor(provider);
+                                networkLabel = provider
+                                    .split('.')
+                                    .last
+                                    .toUpperCase();
+                              }
+                            }
+
+                            return Card(
+                              margin: const EdgeInsets.symmetric(vertical: 4),
+                              elevation: 2,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
                               ),
-                            ).then((_) {
-                              _navigatingToChat = false;
-                            });
-                          } else {
-                            _navigatingToChat = false;
-                          }
-                        },
-                        onLongPress: () {
-                          if (!_chatSelectionMode) {
-                            _toggleChatSelectionMode(true);
-                            _toggleChatSelection(chatId);
-                          }
-                        },
-                        borderRadius: BorderRadius.circular(12),
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Row(
-            children: [
-                              // Selection checkbox or status + icon
-                              if (_chatSelectionMode) ...[
-                                Checkbox(
-                                  value: selected,
-                                  onChanged: (_) =>
-                                      _toggleChatSelection(chatId),
-                                ),
-                              ] else
-                                ...[
-                                  Column(
-                  children: [
-                                      // Status dot
-                                      Container(
-                                        width: 12,
-                                        height: 12,
-                                        margin: const EdgeInsets.only(
-                                            bottom: 8),
-                                        decoration: BoxDecoration(
-                                          color: _getStatusColor(status),
-                                          shape: BoxShape.circle,
-                                        ),
-                                      ),
-                                      // Network icon
-                                      Container(
-                                        width: 40,
-                                        height: 40,
-                                        decoration: BoxDecoration(
-                                          color: networkColor.withOpacity(0.2),
-                                          shape: BoxShape.circle,
-                                        ),
-                                        child: Icon(
-                                          Icons.message,
-                                          color: networkColor,
-                                          size: 20,
-                                        ),
-              ),
-          ],
-        ),
-                                ],
-                              const SizedBox(width: 12),
-                              // Main content
-                              Expanded(
-                                child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-                                    // Vendor name with verification
-            Row(
-              children: [
-                                        Flexible(
-                                          child: Text(
-                                            vendorName,
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 16,
+                              child: InkWell(
+                                onTap: () async {
+                                  // Handle chat tap
+                                  if (_chatSelectionMode) {
+                                    _toggleChatSelection(chatId);
+                                    return;
+                                  }
+
+                                  if (_navigatingToChat) return;
+                                  _navigatingToChat = true;
+
+                                  // Get the recipient number from the chat data or use a default
+                                  String recipientNumber = '';
+                                  try {
+                                    // Try to get recipient number from chat data if it exists
+                                    if (chatData['recipientNumber'] != null) {
+                                      recipientNumber =
+                                      chatData['recipientNumber'];
+                                    } else {
+                                      // Try to get from transaction if available
+                                      final txSnapshot = await FirebaseFirestore
+                                          .instance
+                                          .collection('transactions')
+                                          .where('chatId', isEqualTo: chatId)
+                                          .limit(1)
+                                          .get();
+
+                                      if (txSnapshot.docs.isNotEmpty) {
+                                        recipientNumber =
+                                            txSnapshot.docs
+                                                .first['recipientNumber'] ??
+                                                '';
+                                      }
+                                    }
+                                  } catch (e) {
+                                    debugPrint(
+                                        'Error getting recipient number: $e');
+                                  }
+
+                                  if (mounted) {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) =>
+                                            ChatScreen(
+                                              chatId: chatId,
+                                              vendorId: vendorId,
+                                              bundleId: bundleId,
+                                              businessName: vendorName,
+                                              recipientNumber: recipientNumber,
                                             ),
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                        if (isVerified) ...[
-                                          const SizedBox(width: 4),
-                                          const Icon(Icons.verified,
-                                              color: Colors.blue, size: 16),
-                                        ],
-                                      ],
-                                    ),
-                                    const SizedBox(height: 4),
-                                    // Last message preview
-                                    Text(
-                                      lastMessage,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        color: lastMessagePreviewColor,
-                                        fontSize: 14,
                                       ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              // Right side - network and data amount
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                                  // Network pill
-                                  if (networkLabel.isNotEmpty) ...[
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 8, vertical: 3),
-                                      decoration: BoxDecoration(
-                                        color: networkColor,
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                      child: Text(
-                                        networkLabel,
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 8),
-                                  ],
-                                  // Data amount
-                                  Text(
-                                    '${dataAmount.toStringAsFixed(
-                                        dataAmount.truncateToDouble() ==
-                                            dataAmount ? 0 : 1)}GB',
-                                    style: TextStyle(
-                                      color: networkColor,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 16, // Larger text as requested
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  // Time and unread counter
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min,
+                                    ).then((_) {
+                                      _navigatingToChat = false;
+                                    });
+                                  } else {
+                                    _navigatingToChat = false;
+                                  }
+                                },
+                                onLongPress: () {
+                                  if (!_chatSelectionMode) {
+                                    _toggleChatSelectionMode(true);
+                                    _toggleChatSelection(chatId);
+                                  }
+                                },
+                                borderRadius: BorderRadius.circular(12),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Row(
                                     children: [
-                                      Text(
-                                        _formatTime(lastMessageTime),
-                                        style: TextStyle(
-                                          color: timeTextColor,
-                                          fontSize: 12,
+                                      // Selection checkbox or status + icon
+                                      if (_chatSelectionMode) ...[
+                                        Checkbox(
+                                          value: selected,
+                                          onChanged: (_) =>
+                                              _toggleChatSelection(chatId),
+                                        ),
+                                      ] else
+                                        ...[
+                                          Column(
+                                            children: [
+                                              // Status dot
+                                              Container(
+                                                width: 12,
+                                                height: 12,
+                                                margin: const EdgeInsets.only(
+                                                    bottom: 8),
+                                                decoration: BoxDecoration(
+                                                  color: _getStatusColor(
+                                                      status),
+                                                  shape: BoxShape.circle,
+                                                ),
+                                              ),
+                                              // Network icon
+                                              Container(
+                                                width: 40,
+                                                height: 40,
+                                                decoration: BoxDecoration(
+                                                  color: networkColor
+                                                      .withOpacity(0.2),
+                                                  shape: BoxShape.circle,
+                                                ),
+                                                child: Icon(
+                                                  Icons.message,
+                                                  color: networkColor,
+                                                  size: 20,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      const SizedBox(width: 12),
+                                      // Main content
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment
+                                              .start,
+                                          children: [
+                                            // Vendor name with verification
+                                            Row(
+                                              children: [
+                                                Flexible(
+                                                  child: Text(
+                                                    vendorName,
+                                                    style: const TextStyle(
+                                                      fontWeight: FontWeight
+                                                          .bold,
+                                                      fontSize: 16,
+                                                    ),
+                                                    overflow: TextOverflow
+                                                        .ellipsis,
+                                                  ),
+                                                ),
+                                                if (isVerified) ...[
+                                                  const SizedBox(width: 4),
+                                                  const Icon(Icons.verified,
+                                                      color: Colors.blue,
+                                                      size: 16),
+                                                ],
+                                              ],
+                                            ),
+                                            const SizedBox(height: 4),
+                                            // Last message preview
+                                            Text(
+                                              lastMessage,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                color: lastMessagePreviewColor,
+                                                fontSize: 14,
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       ),
-                                      if (unreadCount > 0) ...[
-                                        const SizedBox(width: 4),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                              horizontal: 6, vertical: 2),
-                                          decoration: const BoxDecoration(
-                                            color: Colors.blue,
-                                            shape: BoxShape.circle,
-                                          ),
-                                          child: Text(
-                                            unreadCount.toString(),
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 12,
+                                      // Right side - network and data amount
+                                      Column(
+                                        crossAxisAlignment: CrossAxisAlignment
+                                            .end,
+                                        children: [
+                                          // Network pill
+                                          if (networkLabel.isNotEmpty) ...[
+                                            Container(
+                                              padding: const EdgeInsets
+                                                  .symmetric(
+                                                  horizontal: 8, vertical: 3),
+                                              decoration: BoxDecoration(
+                                                color: networkColor,
+                                                borderRadius: BorderRadius
+                                                    .circular(10),
+                                              ),
+                                              child: Text(
+                                                networkLabel,
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(height: 8),
+                                          ],
+                                          // Data amount
+                                          Text(
+                                            '${dataAmount.toStringAsFixed(
+                                                dataAmount.truncateToDouble() ==
+                                                    dataAmount ? 0 : 1)}GB',
+                                            style: TextStyle(
+                                              color: networkColor,
                                               fontWeight: FontWeight.bold,
+                                              fontSize: 16, // Larger text as requested
                                             ),
                                           ),
-                                        ),
-                                      ],
+                                          const SizedBox(height: 4),
+                                          // Time and unread counter
+                                          Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Text(
+                                                _formatTime(lastMessageTime),
+                                                style: TextStyle(
+                                                  color: timeTextColor,
+                                                  fontSize: 12,
+                                                ),
+                                              ),
+                                              if (unreadCount > 0) ...[
+                                                const SizedBox(width: 4),
+                                                Container(
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                      horizontal: 6,
+                                                      vertical: 2),
+                                                  decoration: const BoxDecoration(
+                                                    color: Colors.blue,
+                                                    shape: BoxShape.circle,
+                                                  ),
+                                                  child: Text(
+                                                    unreadCount.toString(),
+                                                    style: const TextStyle(
+                                                      color: Colors.white,
+                                                      fontSize: 12,
+                                                      fontWeight: FontWeight
+                                                          .bold,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
                                     ],
                                   ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    );
+                          ]),
+                              ]),
+                            )
+                              )
+                            );
+                          },
+                        );
+                      },
+                    ));
                   },
                 );
               },
             ),
-    );
-          },
-        );
-      },
-    );
+          );
+
   }
 
 
-  void _showFilterDialog() {
+
+    void _showFilterDialog() {
     // Store current filter values in local variables
     NetworkProvider? selectedProvider = _selectedProviderFilter;
     double maxPrice = _maxPriceFilter ?? 100.0;
@@ -1342,9 +1415,16 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
         ),
         // Vendors List (vendor-first view)
         Expanded(
-          child: StreamBuilder<List<BundleListing>>(
-            stream: _listingRepository.getActiveListings(),
-            builder: (context, snapshot) {
+          child: RefreshIndicator(
+            onRefresh: () async {
+              // Firestore StreamBuilder auto-refreshes, but we can trigger a manual check
+              await _listingRepository.getActiveListings().first;
+              await Future.delayed(const Duration(milliseconds: 500));
+            },
+            color: AppTheme.primary,
+            child: StreamBuilder<List<BundleListing>>(
+              stream: _listingRepository.getActiveListings(),
+              builder: (context, snapshot) {
               if (snapshot.hasError) {
                 return Center(child: Text('Error: ${snapshot.error}'));
               }
@@ -1399,7 +1479,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                   List<String> filteredIds = vendorIds.where((id) {
                     if (_searchQuery.isEmpty) return true;
                     final query = _searchQuery.toLowerCase();
-                    
+
                     // 1. Check Vendor Name
                     final name = (vendorIdToName[id] ?? '').toLowerCase();
                     if (name.contains(query)) return true;
@@ -1407,19 +1487,19 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                     // 2. Check Listings details
                     final listings = vendorListings[id];
                     if (listings == null) return false;
-                    
+
                     return listings.any((l) {
                       final provider = l.provider.toString().split('.').last.toLowerCase();
                       final dataGB = '${l.dataAmount}gb';
                       final data = '${l.dataAmount}';
                       // Handle integer data amounts in search (e.g. "5" matches 5.0)
-                      final dataInt = l.dataAmount == l.dataAmount.roundToDouble() 
-                          ? '${l.dataAmount.toInt()}' 
+                      final dataInt = l.dataAmount == l.dataAmount.roundToDouble()
+                          ? '${l.dataAmount.toInt()}'
                           : '';
-                          
+
                       final price = '${l.price}';
                       final title = l.title.toLowerCase();
-                      
+
                       return provider.contains(query) ||
                              dataGB.contains(query) ||
                              data.contains(query) ||
@@ -1439,6 +1519,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
                   }
 
               return ListView.builder(
+                    physics: const AlwaysScrollableScrollPhysics(),
                     padding: const EdgeInsets.all(16),
                     itemCount: visible.length + (limit < total ? 1 : 0),
                 itemBuilder: (context, index) {
@@ -1468,6 +1549,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
             },
           ),
         ),
+        )
       ],
     );
   }
@@ -1503,7 +1585,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> with SingleTicker
       builder: (context, snap) {
         String vendorName = 'Vendor';
         bool isVerified = false;
-        
+
         if (snap.hasData && snap.data!.exists) {
           final data = snap.data!.data() as Map<String, dynamic>?;
           vendorName = data?['businessName'] ?? data?['name'] ?? 'Vendor';
